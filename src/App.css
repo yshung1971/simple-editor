@@ -611,31 +611,70 @@ button:focus-visible,
   scrollbar-width: thin;
 }
 
-.cm-search {
+.cm-editor .cm-panel.cm-search {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  padding: 7px 9px;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 42px 9px 10px;
   font-family: var(--font-ui);
-  font-size: 12px;
+  font-size: 14px;
 }
 
-.cm-search input,
-.cm-search button {
-  height: 25px;
+.cm-editor .cm-panel.cm-search input,
+.cm-editor .cm-panel.cm-search button {
+  height: 32px;
+  margin: 0;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 5px;
   background: var(--surface-raised);
   color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1;
 }
 
-.cm-search input {
-  padding: 0 7px;
+.cm-editor .cm-panel.cm-search input:not([type="checkbox"]) {
+  padding: 0 10px;
 }
 
-.cm-search button {
-  padding: 0 8px;
+.cm-editor .cm-panel.cm-search button {
+  padding: 0 12px;
   cursor: pointer;
+}
+
+.cm-editor .cm-panel.cm-search label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.cm-editor .cm-panel.cm-search input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.cm-editor .cm-panel.cm-search button[name="close"] {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.cm-editor .cm-panel.cm-search button[name="close"]:hover {
+  background: var(--surface-soft);
+  color: var(--text-primary);
 }
 
 .cm-button {
