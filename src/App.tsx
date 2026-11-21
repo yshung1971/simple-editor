@@ -15,6 +15,7 @@ import { EditorPane } from "./components/EditorPane";
 import { MarkdownPreview } from "./components/MarkdownPreview";
 import { isMarkdownFile, languageLabel } from "./lib/languages";
 import {
+  cacheWorkspace,
   chooseSavePath,
   chooseTextFile,
   listenForFileDrops,
@@ -178,17 +179,21 @@ function App() {
       return;
     }
 
+    const snapshot = {
+      version: 1 as const,
+      updatedAt: Date.now(),
+      tabs,
+      activeTabId,
+      themeMode,
+      previewVisible,
+    };
+    cacheWorkspace(snapshot);
+
     const timer = window.setTimeout(() => {
-      void persistWorkspace({
-        version: 1,
-        tabs,
-        activeTabId,
-        themeMode,
-        previewVisible,
-      }).catch((error) => {
+      void persistWorkspace(snapshot).catch((error) => {
         showError(`Could not save workspace: ${String(error)}`);
       });
-    }, 500);
+    }, 350);
 
     return () => {
       window.clearTimeout(timer);

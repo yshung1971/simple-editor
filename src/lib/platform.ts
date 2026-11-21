@@ -135,26 +135,37 @@ export async function loadStartupFiles(): Promise<string[]> {
 }
 
 export async function persistWorkspace(snapshot: WorkspaceSnapshot) {
+  cacheWorkspace(snapshot);
+
   if (!isTauriRuntime) {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(snapshot));
     return;
   }
-
   await invoke("save_session", {
     content: JSON.stringify(snapshot),
   });
 }
 
+export function cacheWorkspace(snapshot: WorkspaceSnapshot) {
+  localStorage.setItem(SESSION_KEY, JSON.stringify(snapshot));
+}
+
 export async function restoreWorkspace(): Promise<WorkspaceSnapshot | null> {
   try {
-    const raw = isTauriRuntime
+    const localRaw = localStorage.getItem(SESSION_KEY);
+    const nativeRaw = isTauriRuntime
       ? await invoke<string | null>("load_session")
-      : localStorage.getItem(SESSION_KEY);
-    if (!raw) {
+      : null;
+    const candidates = [localRaw, nativeRaw]
+      .filter((value): value is string => Boolean(value))
+      .map((value) => JSON.parse(value) as WorkspaceSnapshot)
+      .filter((value) => value.version === 1);
+
+    if (candidates.length === 0) {
       return null;
     }
-    const snapshot = JSON.parse(raw) as WorkspaceSnapshot;
-    return snapshot.version === 1 ? snapshot : null;
+    return candidates.sort(
+      (left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0),
+    )[0];
   } catch {
     return null;
   }

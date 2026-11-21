@@ -12,6 +12,7 @@ export type EditorTab = {
 
 export type WorkspaceSnapshot = {
   version: 1;
+  updatedAt: number;
   tabs: EditorTab[];
   activeTabId: string | null;
   themeMode: ThemeMode;
