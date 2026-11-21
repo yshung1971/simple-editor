@@ -54,6 +54,7 @@ import {
   setWindowTitle,
   setWindowSize,
   setWebviewZoom,
+  showAppWindow,
   toggleMaximizeWindow,
   writeFile,
 } from "./lib/platform";
@@ -424,6 +425,16 @@ function App() {
         return;
       }
       setReady(true);
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
+      });
+      if (!cancelled) {
+        await showAppWindow().catch((error) => {
+          showError(`Could not show window: ${String(error)}`);
+        });
+      }
 
       if (startupPaths.length > 0) {
         window.setTimeout(() => {

@@ -317,6 +317,15 @@ export async function setWindowSize(size: WindowSettings) {
   );
 }
 
+export async function showAppWindow() {
+  if (!isTauriRuntime) {
+    return;
+  }
+
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  await getCurrentWindow().show();
+}
+
 export async function listenForWindowMetrics(
   callback: (
     state: {
