@@ -1,11 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import type { FilePayload, WorkspaceSnapshot } from "../types";
+import type {
+  FilePayload,
+  UserSettings,
+  WorkspaceSnapshot,
+} from "../types";
 
 export const isTauriRuntime =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 const SESSION_KEY = "simple-editor.workspace.v1";
+const SETTINGS_KEY = "simple-editor.settings.v1";
 
 function fileName(path: string) {
   const normalized = path.replaceAll("\\", "/");
@@ -145,6 +150,39 @@ export async function persistWorkspace(snapshot: WorkspaceSnapshot) {
   });
 }
 
+export async function persistSettings(settings: UserSettings) {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+
+  if (!isTauriRuntime) {
+    return;
+  }
+  await invoke("save_settings", {
+    content: JSON.stringify(settings),
+  });
+}
+
+export async function restoreSettings(): Promise<UserSettings | null> {
+  try {
+    const localRaw = localStorage.getItem(SETTINGS_KEY);
+    const nativeRaw = isTauriRuntime
+      ? await invoke<string | null>("load_settings")
+      : null;
+    const candidates = [localRaw, nativeRaw]
+      .filter((value): value is string => Boolean(value))
+      .map((value) => JSON.parse(value) as UserSettings)
+      .filter((value) => value.version === 1);
+
+    if (candidates.length === 0) {
+      return null;
+    }
+    return candidates.sort(
+      (left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0),
+    )[0];
+  } catch {
+    return null;
+  }
+}
+
 export function cacheWorkspace(snapshot: WorkspaceSnapshot) {
   localStorage.setItem(SESSION_KEY, JSON.stringify(snapshot));
 }
@@ -179,6 +217,25 @@ export async function setWindowTitle(title: string) {
 
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   await getCurrentWindow().setTitle(title);
+}
+
+export async function setWebviewZoom(scaleFactor: number) {
+  if (!isTauriRuntime) {
+    document.documentElement.style.setProperty(
+      "--app-zoom",
+      String(scaleFactor),
+    );
+    document.documentElement.style.setProperty(
+      "--app-zoom-size",
+      `${100 / scaleFactor}%`,
+    );
+    return;
+  }
+
+  document.documentElement.style.setProperty("--app-zoom", "1");
+  document.documentElement.style.setProperty("--app-zoom-size", "100%");
+  const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+  await getCurrentWebview().setZoom(scaleFactor);
 }
 
 export async function listenForFileDrops(

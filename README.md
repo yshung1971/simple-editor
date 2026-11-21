@@ -8,11 +8,15 @@ CodeMirror 6.
 - Open, edit, and save UTF-8 text files
 - Tabs with dirty-state indicators
 - Automatic unsaved workspace recovery
+- Versioned user settings stored separately from unsaved documents
 - Syntax highlighting for common text and programming formats
 - GFM Markdown preview with aligned pipe tables, sticky headers, and
   horizontal scrolling for wide tables
+- Mermaid diagrams with toolbar and Ctrl+wheel zoom
+- Resizable editor/preview split
+- Browser-style zoom with Ctrl+plus, Ctrl+minus, and Ctrl+0
 - Light and dark themes
-- Open With and command-line file opening
+- Open With, command-line file opening, and middle-click tab closing
 - No account, AI, Git, terminal, project system, or language-server panels
 
 ## Requirements

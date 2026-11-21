@@ -17,6 +17,17 @@ export type WorkspaceSnapshot = {
   activeTabId: string | null;
   themeMode: ThemeMode;
   previewVisible: boolean;
+  splitPercent?: number;
+  zoomLevel?: number;
+};
+
+export type UserSettings = {
+  version: 1;
+  updatedAt: number;
+  themeMode: ThemeMode;
+  previewVisible: boolean;
+  splitPercent: number;
+  zoomLevel: number;
 };
 
 export type FilePayload = {

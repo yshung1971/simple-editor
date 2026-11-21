@@ -27,6 +27,16 @@ fn session_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(directory.join("workspace-session.json"))
 }
 
+fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| command_error("Could not resolve app data directory", error))?;
+    fs::create_dir_all(&directory)
+        .map_err(|error| command_error("Could not create app data directory", error))?;
+    Ok(directory.join("settings.json"))
+}
+
 #[tauri::command]
 fn read_text_file(path: String) -> Result<TextFilePayload, String> {
     let canonical = fs::canonicalize(&path)
@@ -90,6 +100,24 @@ fn load_session(app: AppHandle) -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
+fn save_settings(app: AppHandle, content: String) -> Result<(), String> {
+    let path = settings_path(&app)?;
+    fs::write(&path, content)
+        .map_err(|error| command_error("Could not persist editor settings", error))
+}
+
+#[tauri::command]
+fn load_settings(app: AppHandle) -> Result<Option<String>, String> {
+    let path = settings_path(&app)?;
+    if !path.exists() {
+        return Ok(None);
+    }
+    fs::read_to_string(path)
+        .map(Some)
+        .map_err(|error| command_error("Could not restore editor settings", error))
+}
+
+#[tauri::command]
 fn startup_files() -> Vec<String> {
     std::env::args()
         .skip(1)
@@ -110,6 +138,8 @@ pub fn run() {
             write_text_file,
             save_session,
             load_session,
+            save_settings,
+            load_settings,
             startup_files
         ])
         .run(tauri::generate_context!())
