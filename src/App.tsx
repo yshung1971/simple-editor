@@ -1,17 +1,22 @@
 import {
+  ChevronLeft,
+  ChevronRight,
   Columns2,
   EyeOff,
   FilePlus2,
   FileText,
   FolderOpen,
+  Menu,
   Moon,
   Save,
   Sun,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -63,7 +68,7 @@ function createUntitledTab(): EditorTab {
   return {
     id: crypto.randomUUID(),
     path: null,
-    name: number === 1 ? "untitled.md" : `untitled-${number}.md`,
+    name: number === 1 ? "untitled" : `untitled-${number}`,
     content: "",
     savedContent: "",
     cursor: 0,
@@ -116,6 +121,15 @@ function App() {
   const [splitPercent, setSplitPercent] = useState(0.5);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [isResizing, setIsResizing] = useState(false);
+  const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(
+    null,
+  );
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [tabScrollState, setTabScrollState] = useState({
+    hasOverflow: false,
+    canScrollLeft: false,
+    canScrollRight: false,
+  });
   const [compactLayout, setCompactLayout] = useState(() =>
     window.matchMedia("(max-width: 860px)").matches,
   );
@@ -124,6 +138,10 @@ function App() {
   const activeTabIdRef = useRef(activeTabId);
   const tabsRef = useRef(tabs);
   const workspaceRef = useRef<HTMLElement>(null);
+  const tabStripRef = useRef<HTMLElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const firstMenuItemRef = useRef<HTMLButtonElement>(null);
+  const cancelCloseButtonRef = useRef<HTMLButtonElement>(null);
 
   activeTabIdRef.current = activeTabId;
   tabsRef.current = tabs;
@@ -132,6 +150,10 @@ function App() {
     () => tabs.find((tab) => tab.id === activeTabId) ?? null,
     [tabs, activeTabId],
   );
+  const pendingCloseTab = useMemo(
+    () => tabs.find((tab) => tab.id === pendingCloseTabId) ?? null,
+    [pendingCloseTabId, tabs],
+  );
 
   const showError = useCallback((message: string) => {
     setErrorMessage(message);
@@ -139,6 +161,53 @@ function App() {
       setErrorMessage((current) => (current === message ? null : current));
     }, 4500);
   }, []);
+
+  const updateTabScrollState = useCallback(() => {
+    const strip = tabStripRef.current;
+    if (!strip) {
+      return;
+    }
+
+    const maxScrollLeft = Math.max(0, strip.scrollWidth - strip.clientWidth);
+    const hasOverflow = maxScrollLeft > 1;
+    setTabScrollState({
+      hasOverflow,
+      canScrollLeft: hasOverflow && strip.scrollLeft > 1,
+      canScrollRight:
+        hasOverflow && strip.scrollLeft < maxScrollLeft - 1,
+    });
+  }, []);
+
+  const scrollTabStrip = useCallback(
+    (direction: -1 | 1) => {
+      const strip = tabStripRef.current;
+      if (!strip) {
+        return;
+      }
+      strip.scrollBy({
+        left: direction * Math.max(96, strip.clientWidth * 0.72),
+        behavior: "smooth",
+      });
+    },
+    [],
+  );
+
+  const revealActiveTab = useCallback(() => {
+    const strip = tabStripRef.current;
+    if (!strip || !activeTabId) {
+      updateTabScrollState();
+      return;
+    }
+
+    const activeElement = strip.querySelector<HTMLElement>(
+      `[data-tab-id="${activeTabId}"]`,
+    );
+    activeElement?.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+    });
+    updateTabScrollState();
+  }, [activeTabId, updateTabScrollState]);
 
   const focusPath = useCallback((path: string) => {
     const existing = tabsRef.current.find((tab) => samePath(tab.path, path));
@@ -233,6 +302,66 @@ function App() {
     media.addEventListener("change", updateLayout);
     return () => media.removeEventListener("change", updateLayout);
   }, []);
+
+  useEffect(() => {
+    const strip = tabStripRef.current;
+    if (!strip) {
+      return;
+    }
+
+    const syncScrollState = () => {
+      updateTabScrollState();
+      revealActiveTab();
+    };
+
+    syncScrollState();
+    const observer = new ResizeObserver(syncScrollState);
+    observer.observe(strip);
+    window.addEventListener("resize", syncScrollState);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", syncScrollState);
+    };
+  }, [revealActiveTab, updateTabScrollState]);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      firstMenuItemRef.current?.focus();
+    });
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !menuRef.current?.contains(event.target)
+      ) {
+        setMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", closeOnPointerDown);
+    window.addEventListener("keydown", closeOnEscape, true);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("pointerdown", closeOnPointerDown);
+      window.removeEventListener("keydown", closeOnEscape, true);
+    };
+  }, [menuOpen]);
+
+  useLayoutEffect(() => {
+    revealActiveTab();
+  }, [revealActiveTab, tabs.length]);
 
   useEffect(() => {
     if (!ready) {
@@ -386,14 +515,10 @@ function App() {
     [showError],
   );
 
-  const closeTab = useCallback((tabId: string) => {
+  const removeTab = useCallback((tabId: string) => {
     const current = tabsRef.current;
     const index = current.findIndex((tab) => tab.id === tabId);
-    const tab = current[index];
-    if (!tab) {
-      return;
-    }
-    if (isDirty(tab) && !window.confirm(`Close ${tab.name} without saving?`)) {
+    if (index === -1) {
       return;
     }
 
@@ -404,6 +529,34 @@ function App() {
       setActiveTabId(fallback?.id ?? null);
     }
   }, []);
+
+  const closeTab = useCallback(
+    (tabId: string) => {
+      const tab = tabsRef.current.find((candidate) => candidate.id === tabId);
+      if (!tab) {
+        return;
+      }
+      if (isDirty(tab)) {
+        setPendingCloseTabId(tabId);
+        return;
+      }
+      removeTab(tabId);
+    },
+    [removeTab],
+  );
+
+  const cancelPendingClose = useCallback(() => {
+    setPendingCloseTabId(null);
+  }, []);
+
+  const confirmPendingClose = useCallback(() => {
+    if (!pendingCloseTabId) {
+      return;
+    }
+    const tabId = pendingCloseTabId;
+    setPendingCloseTabId(null);
+    removeTab(tabId);
+  }, [pendingCloseTabId, removeTab]);
 
   const changeZoom = useCallback((delta: number) => {
     setZoomLevel((current) =>
@@ -463,7 +616,33 @@ function App() {
   };
 
   useEffect(() => {
+    if (!pendingCloseTabId) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      cancelCloseButtonRef.current?.focus();
+    });
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        cancelPendingClose();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [cancelPendingClose, pendingCloseTabId]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (pendingCloseTabId) {
+        return;
+      }
       const modifier = event.ctrlKey || event.metaKey;
       if (!modifier) {
         const target = event.target;
@@ -549,6 +728,7 @@ function App() {
     compactLayout,
     createNewTab,
     openFilePicker,
+    pendingCloseTabId,
     saveTab,
   ]);
 
@@ -596,88 +776,119 @@ function App() {
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => void onBrowserDrop(event)}
     >
-      <header className="command-bar">
-        <div className="brand" aria-label="Simple Editor">
-          <span className="brand-mark">S</span>
-          <span className="brand-name">Simple</span>
+      <header className="top-bar">
+        <div className="menu-anchor" ref={menuRef}>
+          <button
+            className="topbar-button"
+            type="button"
+            onClick={() => setMenuOpen((open) => !open)}
+            title="Menu"
+            aria-label="Open application menu"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-controls="application-menu"
+          >
+            <Menu size={17} strokeWidth={1.8} />
+          </button>
+
+          {menuOpen ? (
+            <div
+              className="app-menu"
+              id="application-menu"
+              role="menu"
+              aria-label="Application menu"
+            >
+              <button
+                className="menu-item"
+                type="button"
+                role="menuitem"
+                ref={firstMenuItemRef}
+                onClick={() => {
+                  setMenuOpen(false);
+                  void openFilePicker();
+                }}
+              >
+                <FolderOpen size={16} strokeWidth={1.8} />
+                <span>Open file</span>
+                <kbd>Ctrl+O</kbd>
+              </button>
+              <button
+                className="menu-item"
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  createNewTab();
+                }}
+              >
+                <FilePlus2 size={16} strokeWidth={1.8} />
+                <span>New file</span>
+                <kbd>Ctrl+N</kbd>
+              </button>
+              <button
+                className="menu-item"
+                type="button"
+                role="menuitem"
+                disabled={!activeTab}
+                onClick={() => {
+                  setMenuOpen(false);
+                  if (activeTab) {
+                    void saveTab(activeTab.id);
+                  }
+                }}
+              >
+                <Save size={16} strokeWidth={1.8} />
+                <span>Save</span>
+                <kbd>Ctrl+S</kbd>
+              </button>
+              <div className="menu-separator" role="separator" />
+              <button
+                className="menu-item"
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setThemeMode((current) =>
+                    current === "dark" ? "light" : "dark",
+                  );
+                }}
+              >
+                {themeMode === "dark" ? (
+                  <Sun size={16} strokeWidth={1.8} />
+                ) : (
+                  <Moon size={16} strokeWidth={1.8} />
+                )}
+                <span>
+                  {themeMode === "dark" ? "Use light theme" : "Use dark theme"}
+                </span>
+              </button>
+            </div>
+          ) : null}
         </div>
 
-        <div className="command-group">
-          <button
-            className="icon-button"
-            onClick={() => void openFilePicker()}
-            title="Open file (Ctrl+O)"
-            aria-label="Open file"
-          >
-            <FolderOpen size={17} strokeWidth={1.8} />
-          </button>
-          <button
-            className="icon-button"
-            onClick={createNewTab}
-            title="New file (Ctrl+N)"
-            aria-label="New file"
-          >
-            <FilePlus2 size={17} strokeWidth={1.8} />
-          </button>
-          <button
-            className="icon-button"
-            disabled={!activeTab}
-            onClick={() => {
-              if (activeTab) {
-                void saveTab(activeTab.id);
-              }
-            }}
-            title="Save (Ctrl+S)"
-            aria-label="Save file"
-          >
-            <Save size={17} strokeWidth={1.8} />
-          </button>
-        </div>
+        <button
+          className="tab-scroll-button tab-scroll-left"
+          type="button"
+          hidden={!tabScrollState.hasOverflow}
+          disabled={!tabScrollState.canScrollLeft}
+          onClick={() => scrollTabStrip(-1)}
+          title="Scroll tabs left"
+          aria-label="Scroll tabs left"
+        >
+          <ChevronLeft size={16} strokeWidth={1.8} />
+        </button>
 
-        <div className="command-spacer" />
-
-        <div className="command-group">
-          <button
-            className={`icon-button ${showPreview ? "is-active" : ""}`}
-            disabled={!previewable}
-            onClick={() => setPreviewVisible((visible) => !visible)}
-            title={showPreview ? "Hide preview" : "Show preview"}
-            aria-label={
-              showPreview
-                ? "Hide markdown preview"
-                : "Show markdown preview"
-            }
-          >
-            {showPreview ? (
-              <Columns2 size={17} strokeWidth={1.8} />
-            ) : (
-              <EyeOff size={17} strokeWidth={1.8} />
-            )}
-          </button>
-          <button
-            className="icon-button"
-            onClick={() =>
-              setThemeMode((current) =>
-                current === "dark" ? "light" : "dark",
-              )
-            }
-            title="Toggle theme"
-            aria-label="Toggle light and dark theme"
-          >
-            {themeMode === "dark" ? (
-              <Sun size={17} strokeWidth={1.8} />
-            ) : (
-              <Moon size={17} strokeWidth={1.8} />
-            )}
-          </button>
-        </div>
-      </header>
-
-      <nav className="tab-strip" aria-label="Open files">
+        <nav
+          className="tab-strip"
+          aria-label="Open files"
+          ref={tabStripRef}
+          onScroll={updateTabScrollState}
+        >
         {tabs.map((tab) => (
           <button
             className={`tab ${tab.id === activeTabId ? "is-active" : ""}`}
             key={tab.id}
+            data-tab-id={tab.id}
             onClick={() => {
               setActiveTabId(tab.id);
               setPreviewVisible(isMarkdownFile(tab.name));
@@ -725,6 +936,20 @@ function App() {
             </span>
           </button>
         ))}
+        </nav>
+
+        <button
+          className="tab-scroll-button tab-scroll-right"
+          type="button"
+          hidden={!tabScrollState.hasOverflow}
+          disabled={!tabScrollState.canScrollRight}
+          onClick={() => scrollTabStrip(1)}
+          title="Scroll tabs right"
+          aria-label="Scroll tabs right"
+        >
+          <ChevronRight size={16} strokeWidth={1.8} />
+        </button>
+
         <button
           className="new-tab-button"
           onClick={createNewTab}
@@ -733,7 +958,33 @@ function App() {
         >
           <FilePlus2 size={15} strokeWidth={1.8} />
         </button>
-      </nav>
+
+        <div
+          className="window-drag-region"
+          data-tauri-drag-region
+          aria-hidden="true"
+        />
+
+        <div className="tab-bar-actions">
+          <button
+            className={`preview-button ${showPreview ? "is-active" : ""}`}
+            disabled={!previewable}
+            onClick={() => setPreviewVisible((visible) => !visible)}
+            title={showPreview ? "Hide preview" : "Show preview"}
+            aria-label={
+              showPreview
+                ? "Hide markdown preview"
+                : "Show markdown preview"
+            }
+          >
+            {showPreview ? (
+              <Columns2 size={17} strokeWidth={1.8} />
+            ) : (
+              <EyeOff size={17} strokeWidth={1.8} />
+            )}
+          </button>
+        </div>
+      </header>
 
       <main
         className={`workspace ${showPreview ? "has-preview" : ""} ${isResizing ? "is-resizing" : ""}`}
@@ -836,6 +1087,57 @@ function App() {
           ) : null}
         </div>
       </footer>
+
+      {pendingCloseTab ? (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.button === 0 && event.target === event.currentTarget) {
+              cancelPendingClose();
+            }
+          }}
+        >
+          <div
+            className="confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="close-dialog-title"
+            aria-describedby="close-dialog-description"
+          >
+            <div className="confirm-dialog-heading">
+              <span className="confirm-dialog-icon">
+                <TriangleAlert size={18} strokeWidth={1.8} />
+              </span>
+              <div className="confirm-dialog-copy">
+                <h2 id="close-dialog-title">Close without saving?</h2>
+                <p id="close-dialog-description">
+                  <strong>{pendingCloseTab.name}</strong> has unsaved changes.
+                </p>
+              </div>
+              <button
+                className="dialog-close-button"
+                onClick={cancelPendingClose}
+                title="Cancel close"
+                aria-label="Cancel close"
+              >
+                <X size={15} strokeWidth={2} />
+              </button>
+            </div>
+            <div className="confirm-dialog-actions">
+              <button
+                className="secondary-button"
+                ref={cancelCloseButtonRef}
+                onClick={cancelPendingClose}
+              >
+                Cancel
+              </button>
+              <button className="danger-button" onClick={confirmPendingClose}>
+                Close without saving
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {!ready ? (
         <div className="loading-screen">

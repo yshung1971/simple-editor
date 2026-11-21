@@ -11,6 +11,8 @@ import type { ThemeMode } from "../types";
 const MIN_ZOOM = 0.35;
 const MAX_ZOOM = 2.5;
 const ZOOM_STEP = 0.15;
+const ACCENT_COUNT = 8;
+const BASE_NODE_CLASSES = new Set(["node", "default"]);
 
 type MermaidDiagramProps = {
   chart: string;
@@ -26,6 +28,21 @@ function fitWidth(width: number, availableWidth: number) {
     return 1;
   }
   return clampZoom(Math.min(1, availableWidth / width));
+}
+
+function applyAccentPalette(svg: SVGSVGElement) {
+  const nodes = svg.querySelectorAll<SVGGElement>("g.node");
+
+  nodes.forEach((node, index) => {
+    const hasCustomClass = [...node.classList].some(
+      (className) => !BASE_NODE_CLASSES.has(className),
+    );
+    if (hasCustomClass) {
+      return;
+    }
+
+    node.classList.add(`simple-mermaid-accent-${index % ACCENT_COUNT}`);
+  });
 }
 
 export function MermaidDiagram({
@@ -76,6 +93,7 @@ export function MermaidDiagram({
         if (!svgElement) {
           throw new Error("Mermaid returned an empty diagram");
         }
+        applyAccentPalette(svgElement);
 
         const viewBox = svgElement.viewBox.baseVal;
         const bounds = svgElement.getBoundingClientRect();

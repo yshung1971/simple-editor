@@ -6,13 +6,15 @@ CodeMirror 6.
 ## Features
 
 - Open, edit, and save UTF-8 text files
+- Compact top tab bar with a drag region and overflow navigation
 - Tabs with dirty-state indicators
+- Application menu for opening, creating, saving, and switching themes
 - Automatic unsaved workspace recovery
 - Versioned user settings stored separately from unsaved documents
 - Syntax highlighting for common text and programming formats
 - GFM Markdown preview with aligned pipe tables, sticky headers, and
   horizontal scrolling for wide tables
-- Mermaid diagrams with toolbar and Ctrl+wheel zoom
+- Mermaid diagrams with automatic accent colors, toolbar, and Ctrl+wheel zoom
 - Resizable editor/preview split
 - Browser-style zoom with Ctrl+plus, Ctrl+minus, and Ctrl+0
 - Light and dark themes
