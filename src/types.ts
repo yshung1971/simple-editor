@@ -41,8 +41,13 @@ export type BehaviorSettings = {
   confirmOnClose: boolean;
 };
 
+export type WindowSettings = {
+  width: number;
+  height: number;
+};
+
 export type UserSettings = {
-  version: 3;
+  version: 4;
   uiLanguage: UiLanguage;
   themeMode: ThemeMode;
   previewVisible: boolean;
@@ -51,6 +56,7 @@ export type UserSettings = {
   editor: EditorSettings;
   preview: PreviewSettings;
   behavior: BehaviorSettings;
+  window: WindowSettings;
 };
 
 export type FilePayload = {

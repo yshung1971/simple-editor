@@ -5,6 +5,7 @@ import type {
   ThemeMode,
   UiLanguage,
   UserSettings,
+  WindowSettings,
 } from "../types";
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
@@ -24,6 +25,11 @@ export const DEFAULT_PREVIEW_SETTINGS: PreviewSettings = {
 export const DEFAULT_BEHAVIOR_SETTINGS: BehaviorSettings = {
   restoreUnsavedTabs: true,
   confirmOnClose: true,
+};
+
+export const DEFAULT_WINDOW_SETTINGS: WindowSettings = {
+  width: 1200,
+  height: 800,
 };
 
 function clamp(value: number, minimum: number, maximum: number) {
@@ -58,7 +64,7 @@ export function createDefaultUserSettings(
   themeMode: ThemeMode,
 ): UserSettings {
   return {
-    version: 3,
+    version: 4,
     uiLanguage: "en",
     themeMode,
     previewVisible: true,
@@ -67,6 +73,7 @@ export function createDefaultUserSettings(
     editor: { ...DEFAULT_EDITOR_SETTINGS },
     preview: { ...DEFAULT_PREVIEW_SETTINGS },
     behavior: { ...DEFAULT_BEHAVIOR_SETTINGS },
+    window: { ...DEFAULT_WINDOW_SETTINGS },
   };
 }
 
@@ -75,6 +82,7 @@ export function normalizeUserSettings(value: unknown): UserSettings {
   const editor = record(root.editor);
   const preview = record(root.preview);
   const behavior = record(root.behavior);
+  const windowSettings = record(root.window);
   const themeMode: ThemeMode =
     root.themeMode === "light" || root.themeMode === "dark"
       ? root.themeMode
@@ -83,7 +91,7 @@ export function normalizeUserSettings(value: unknown): UserSettings {
     root.uiLanguage === "zh-TW" ? "zh-TW" : "en";
 
   return {
-    version: 3,
+    version: 4,
     uiLanguage,
     themeMode,
     previewVisible: booleanValue(root.previewVisible, true),
@@ -140,6 +148,28 @@ export function normalizeUserSettings(value: unknown): UserSettings {
       confirmOnClose: booleanValue(
         behavior.confirmOnClose,
         DEFAULT_BEHAVIOR_SETTINGS.confirmOnClose,
+      ),
+    },
+    window: {
+      width: Math.round(
+        clamp(
+          finiteNumber(
+            windowSettings.width,
+            DEFAULT_WINDOW_SETTINGS.width,
+          ),
+          640,
+          10000,
+        ),
+      ),
+      height: Math.round(
+        clamp(
+          finiteNumber(
+            windowSettings.height,
+            DEFAULT_WINDOW_SETTINGS.height,
+          ),
+          480,
+          10000,
+        ),
       ),
     },
   };

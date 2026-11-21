@@ -38,7 +38,8 @@ import {
   closeAppWindow,
   copyText,
   listenForFileDrops,
-  listenForWindowMaximized,
+  listenForWindowCloseRequest,
+  listenForWindowMetrics,
   loadStartupFiles,
   minimizeWindow,
   persistWorkspace,
@@ -50,6 +51,7 @@ import {
   restoreWorkspace,
   restoreSettings,
   setWindowTitle,
+  setWindowSize,
   setWebviewZoom,
   toggleMaximizeWindow,
   writeFile,
@@ -59,6 +61,7 @@ import {
   DEFAULT_BEHAVIOR_SETTINGS,
   DEFAULT_EDITOR_SETTINGS,
   DEFAULT_PREVIEW_SETTINGS,
+  DEFAULT_WINDOW_SETTINGS,
   parseUserSettings,
   serializeUserSettings,
 } from "./lib/settings";
@@ -71,6 +74,7 @@ import type {
   ThemeMode,
   UiLanguage,
   UserSettings,
+  WindowSettings,
 } from "./types";
 
 let untitledCounter = 1;
@@ -161,6 +165,9 @@ function App() {
   const [behaviorSettings, setBehaviorSettings] = useState<BehaviorSettings>(
     DEFAULT_BEHAVIOR_SETTINGS,
   );
+  const [windowSettings, setWindowSettings] = useState<WindowSettings>(
+    DEFAULT_WINDOW_SETTINGS,
+  );
   const [settingsFilePath, setSettingsFilePath] = useState<string | null>(null);
   const [pendingCloseTabIds, setPendingCloseTabIds] = useState<string[]>([]);
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
@@ -237,7 +244,7 @@ function App() {
   const text = appText(uiLanguage);
   const currentSettings = useMemo<UserSettings>(
     () => ({
-      version: 3,
+      version: 4,
       uiLanguage,
       themeMode,
       previewVisible,
@@ -246,6 +253,7 @@ function App() {
       editor: editorSettings,
       preview: previewSettings,
       behavior: behaviorSettings,
+      window: windowSettings,
     }),
     [
       behaviorSettings,
@@ -255,9 +263,12 @@ function App() {
       splitPercent,
       themeMode,
       uiLanguage,
+      windowSettings,
       zoomLevel,
     ],
   );
+  const currentSettingsRef = useRef(currentSettings);
+  currentSettingsRef.current = currentSettings;
 
   const showError = useCallback((message: string) => {
     setErrorMessage(message);
@@ -401,7 +412,16 @@ function App() {
       setEditorSettings(effectiveSettings.editor);
       setPreviewSettings(effectiveSettings.preview);
       setBehaviorSettings(effectiveSettings.behavior);
+      setWindowSettings(effectiveSettings.window);
       setSettingsFilePath(settingsFile?.path ?? null);
+      await setWindowSize(effectiveSettings.window).catch((error) => {
+        if (!cancelled) {
+          showError(`Could not restore window size: ${String(error)}`);
+        }
+      });
+      if (cancelled) {
+        return;
+      }
       setReady(true);
 
       if (startupPaths.length > 0) {
@@ -496,12 +516,28 @@ function App() {
   }, [menuOpen]);
 
   useEffect(() => {
+    if (!ready) {
+      return;
+    }
+
     let dispose: (() => void) | undefined;
     let cancelled = false;
 
-    void listenForWindowMaximized((maximized) => {
+    void listenForWindowMetrics(({ maximized, size }) => {
       if (!cancelled) {
         setWindowMaximized(maximized);
+        if (!maximized && size) {
+          const nextSize = {
+            width: Math.round(size.width),
+            height: Math.round(size.height),
+          };
+          setWindowSettings((current) =>
+            current.width === nextSize.width &&
+            current.height === nextSize.height
+              ? current
+              : nextSize,
+          );
+        }
       }
     }).then((unlisten) => {
       if (cancelled) {
@@ -515,7 +551,36 @@ function App() {
       cancelled = true;
       dispose?.();
     };
-  }, []);
+  }, [ready]);
+
+  useEffect(() => {
+    if (!ready) {
+      return;
+    }
+
+    let dispose: (() => void) | undefined;
+    let cancelled = false;
+
+    void listenForWindowCloseRequest(async (size) => {
+      const settings = size
+        ? { ...currentSettingsRef.current, window: size }
+        : currentSettingsRef.current;
+      await persistSettings(settings).catch((error) => {
+        showError(`Could not save window settings: ${String(error)}`);
+      });
+    }).then((unlisten) => {
+      if (cancelled) {
+        unlisten();
+      } else {
+        dispose = unlisten;
+      }
+    }).catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      dispose?.();
+    };
+  }, [ready, showError]);
 
   useEffect(() => {
     if (!contextMenu) {
@@ -816,7 +881,11 @@ function App() {
     setEditorSettings(settings.editor);
     setPreviewSettings(settings.preview);
     setBehaviorSettings(settings.behavior);
-  }, []);
+    setWindowSettings(settings.window);
+    void setWindowSize(settings.window).catch((error) => {
+      showError(`Could not apply window size: ${String(error)}`);
+    });
+  }, [showError]);
 
   const openSettingsFile = useCallback(async () => {
     try {

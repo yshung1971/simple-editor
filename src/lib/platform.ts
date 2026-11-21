@@ -3,6 +3,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import type {
   FilePayload,
   UserSettings,
+  WindowSettings,
   WorkspaceSnapshot,
 } from "../types";
 import {
@@ -303,8 +304,68 @@ export async function closeAppWindow() {
   await getCurrentWindow().close();
 }
 
-export async function listenForWindowMaximized(
-  callback: (maximized: boolean) => void,
+export async function setWindowSize(size: WindowSettings) {
+  if (!isTauriRuntime) {
+    return;
+  }
+
+  const { getCurrentWindow, LogicalSize } = await import(
+    "@tauri-apps/api/window"
+  );
+  await getCurrentWindow().setSize(
+    new LogicalSize(size.width, size.height),
+  );
+}
+
+export async function listenForWindowMetrics(
+  callback: (
+    state: {
+      maximized: boolean;
+      size: WindowSettings | null;
+    },
+  ) => void,
+): Promise<() => void> {
+  if (!isTauriRuntime) {
+    const emitBrowserSize = () => {
+      callback({
+        maximized: false,
+        size: {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        },
+      });
+    };
+    emitBrowserSize();
+    window.addEventListener("resize", emitBrowserSize);
+    return () => window.removeEventListener("resize", emitBrowserSize);
+  }
+
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  const windowHandle = getCurrentWindow();
+  const emitState = async () => {
+    const [maximized, physicalSize, scaleFactor] = await Promise.all([
+      windowHandle.isMaximized(),
+      windowHandle.innerSize(),
+      windowHandle.scaleFactor(),
+    ]);
+    const logicalSize = physicalSize.toLogical(scaleFactor);
+    callback({
+      maximized,
+      size: {
+        width: Math.round(logicalSize.width),
+        height: Math.round(logicalSize.height),
+      },
+    });
+  };
+  const unlisten = await windowHandle.onResized(() => {
+    void emitState();
+  });
+  await emitState();
+  return unlisten;
+}
+
+export async function listenForWindowCloseRequest(
+  callback: (size: WindowSettings | null) => Promise<void>,
 ): Promise<() => void> {
   if (!isTauriRuntime) {
     return () => undefined;
@@ -312,14 +373,32 @@ export async function listenForWindowMaximized(
 
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   const windowHandle = getCurrentWindow();
-  const emitState = async () => {
-    callback(await windowHandle.isMaximized());
-  };
-  const unlisten = await windowHandle.onResized(() => {
-    void emitState();
+  let closing = false;
+  return windowHandle.onCloseRequested(async (event) => {
+    if (closing) {
+      return;
+    }
+    closing = true;
+    event.preventDefault();
+    try {
+      const [maximized, physicalSize, scaleFactor] = await Promise.all([
+        windowHandle.isMaximized(),
+        windowHandle.innerSize(),
+        windowHandle.scaleFactor(),
+      ]);
+      const logicalSize = physicalSize.toLogical(scaleFactor);
+      await callback(
+        maximized
+          ? null
+          : {
+              width: Math.round(logicalSize.width),
+              height: Math.round(logicalSize.height),
+            },
+      );
+    } finally {
+      await windowHandle.close();
+    }
   });
-  await emitState();
-  return unlisten;
 }
 
 export async function setWebviewZoom(scaleFactor: number) {
