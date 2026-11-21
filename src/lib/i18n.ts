@@ -8,6 +8,7 @@ export type AppText = {
   newFile: string;
   save: string;
   settings: string;
+  exit: string;
   useLightTheme: string;
   useDarkTheme: string;
   scrollTabsLeft: string;
@@ -62,6 +63,7 @@ const EN_TEXT: AppText = {
   newFile: "New file",
   save: "Save",
   settings: "Settings",
+  exit: "Exit",
   useLightTheme: "Use light theme",
   useDarkTheme: "Use dark theme",
   scrollTabsLeft: "Scroll tabs left",
@@ -119,6 +121,7 @@ const ZH_TW_TEXT: AppText = {
   newFile: "新增檔案",
   save: "儲存",
   settings: "設定",
+  exit: "結束",
   useLightTheme: "使用淺色主題",
   useDarkTheme: "使用深色主題",
   scrollTabsLeft: "向左捲動分頁",

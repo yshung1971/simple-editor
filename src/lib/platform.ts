@@ -396,7 +396,7 @@ export async function listenForWindowCloseRequest(
             },
       );
     } finally {
-      await windowHandle.close();
+      await windowHandle.destroy();
     }
   });
 }

@@ -7,6 +7,7 @@ import {
   FilePlus2,
   FileText,
   FolderOpen,
+  LogOut,
   Menu,
   Minus,
   Moon,
@@ -1523,6 +1524,20 @@ function App() {
                     ? text.useLightTheme
                     : text.useDarkTheme}
                 </span>
+              </button>
+              <div className="menu-separator" role="separator" />
+              <button
+                className="menu-item"
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  closeApp();
+                }}
+              >
+                <LogOut size={16} strokeWidth={1.8} />
+                <span>{text.exit}</span>
+                <kbd>Alt+F4</kbd>
               </button>
             </div>
           ) : null}
