@@ -7,8 +7,10 @@ CodeMirror 6.
 
 - Open, edit, and save UTF-8 text files
 - Compact top tab bar with a drag region and overflow navigation
+- Frameless Windows layout with in-app minimize, maximize, and close controls
 - Tabs with dirty-state indicators
 - Application menu for opening, creating, saving, and switching themes
+- Custom tab and Markdown preview context menu with native Save As
 - Automatic unsaved workspace recovery
 - Versioned user settings stored separately from unsaved documents
 - Syntax highlighting for common text and programming formats

@@ -107,13 +107,20 @@ export async function chooseSavePath(
     return suggestedName;
   }
 
+  const lowerName = suggestedName.toLowerCase();
+  const allFiles = { name: "All files", extensions: ["*"] };
+  const textFiles = { name: "Text", extensions: ["txt", "log"] };
+  const markdownFiles = { name: "Markdown", extensions: ["md", "markdown"] };
+  const filters =
+    lowerName.endsWith(".md") || lowerName.endsWith(".markdown")
+      ? [markdownFiles, textFiles, allFiles]
+      : lowerName.endsWith(".txt") || lowerName.endsWith(".log")
+        ? [textFiles, markdownFiles, allFiles]
+        : [allFiles, textFiles, markdownFiles];
+
   return save({
     defaultPath: suggestedName,
-    filters: [
-      { name: "Markdown", extensions: ["md"] },
-      { name: "Text", extensions: ["txt"] },
-      { name: "All files", extensions: ["*"] },
-    ],
+    filters,
   });
 }
 
@@ -217,6 +224,51 @@ export async function setWindowTitle(title: string) {
 
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   await getCurrentWindow().setTitle(title);
+}
+
+export async function minimizeWindow() {
+  if (!isTauriRuntime) {
+    return;
+  }
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  await getCurrentWindow().minimize();
+}
+
+export async function toggleMaximizeWindow() {
+  if (!isTauriRuntime) {
+    return false;
+  }
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  const windowHandle = getCurrentWindow();
+  await windowHandle.toggleMaximize();
+  return windowHandle.isMaximized();
+}
+
+export async function closeAppWindow() {
+  if (!isTauriRuntime) {
+    return;
+  }
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  await getCurrentWindow().close();
+}
+
+export async function listenForWindowMaximized(
+  callback: (maximized: boolean) => void,
+): Promise<() => void> {
+  if (!isTauriRuntime) {
+    return () => undefined;
+  }
+
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  const windowHandle = getCurrentWindow();
+  const emitState = async () => {
+    callback(await windowHandle.isMaximized());
+  };
+  const unlisten = await windowHandle.onResized(() => {
+    void emitState();
+  });
+  await emitState();
+  return unlisten;
 }
 
 export async function setWebviewZoom(scaleFactor: number) {

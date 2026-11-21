@@ -394,8 +394,51 @@ button:focus-visible,
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  padding: 0 7px;
+  padding: 0 6px;
   border-left: 1px solid var(--border);
+}
+
+.window-controls {
+  display: flex;
+  height: 36px;
+  flex: 0 0 auto;
+  align-items: stretch;
+  margin-left: 1px;
+}
+
+.window-control-button {
+  display: grid;
+  width: 46px;
+  min-width: 46px;
+  height: 35px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.window-control-button:hover {
+  background: var(--surface-soft);
+  color: var(--text-primary);
+}
+
+.window-close-button:hover {
+  background: #c42b1c;
+  color: #ffffff;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 60;
+  width: 188px;
+  padding: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
 }
 
 .workspace {

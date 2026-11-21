@@ -2,13 +2,16 @@ import {
   ChevronLeft,
   ChevronRight,
   Columns2,
+  Copy as RestoreIcon,
   EyeOff,
   FilePlus2,
   FileText,
   FolderOpen,
   Menu,
+  Minus,
   Moon,
   Save,
+  Square,
   Sun,
   TriangleAlert,
   X,
@@ -30,8 +33,11 @@ import {
   cacheWorkspace,
   chooseSavePath,
   chooseTextFile,
+  closeAppWindow,
   listenForFileDrops,
+  listenForWindowMaximized,
   loadStartupFiles,
+  minimizeWindow,
   persistWorkspace,
   persistSettings,
   readFile,
@@ -39,6 +45,7 @@ import {
   restoreSettings,
   setWindowTitle,
   setWebviewZoom,
+  toggleMaximizeWindow,
   writeFile,
 } from "./lib/platform";
 import type { EditorTab, FilePayload, ThemeMode } from "./types";
@@ -130,6 +137,12 @@ function App() {
     canScrollLeft: false,
     canScrollRight: false,
   });
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    tabId: string;
+  } | null>(null);
+  const [windowMaximized, setWindowMaximized] = useState(false);
   const [compactLayout, setCompactLayout] = useState(() =>
     window.matchMedia("(max-width: 860px)").matches,
   );
@@ -140,6 +153,7 @@ function App() {
   const workspaceRef = useRef<HTMLElement>(null);
   const tabStripRef = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
   const firstMenuItemRef = useRef<HTMLButtonElement>(null);
   const cancelCloseButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -358,6 +372,61 @@ function App() {
       window.removeEventListener("keydown", closeOnEscape, true);
     };
   }, [menuOpen]);
+
+  useEffect(() => {
+    let dispose: (() => void) | undefined;
+    let cancelled = false;
+
+    void listenForWindowMaximized((maximized) => {
+      if (!cancelled) {
+        setWindowMaximized(maximized);
+      }
+    }).then((unlisten) => {
+      if (cancelled) {
+        unlisten();
+      } else {
+        dispose = unlisten;
+      }
+    }).catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      dispose?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!contextMenu) {
+      return;
+    }
+
+    const closeContextMenu = () => setContextMenu(null);
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !contextMenuRef.current?.contains(event.target)
+      ) {
+        closeContextMenu();
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeContextMenu();
+      }
+    };
+
+    document.addEventListener("pointerdown", closeOnPointerDown);
+    window.addEventListener("blur", closeContextMenu);
+    window.addEventListener("resize", closeContextMenu);
+    window.addEventListener("keydown", closeOnEscape);
+
+    return () => {
+      document.removeEventListener("pointerdown", closeOnPointerDown);
+      window.removeEventListener("blur", closeContextMenu);
+      window.removeEventListener("resize", closeContextMenu);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [contextMenu]);
 
   useLayoutEffect(() => {
     revealActiveTab();
@@ -767,6 +836,53 @@ function App() {
     };
   }, [activeTab]);
 
+  const openContextMenu = (event: React.MouseEvent) => {
+    const target = event.target;
+    if (
+      !(target instanceof Element) ||
+      !target.closest(".top-bar, .preview-pane")
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    const tabElement = target.closest<HTMLElement>(".tab[data-tab-id]");
+    const tabId = tabElement?.dataset.tabId ?? activeTabId;
+    if (!tabId) {
+      setContextMenu(null);
+      return;
+    }
+
+    const menuWidth = 188;
+    const menuHeight = 48;
+    setMenuOpen(false);
+    setContextMenu({
+      x: Math.max(8, Math.min(event.clientX, innerWidth - menuWidth - 8)),
+      y: Math.max(8, Math.min(event.clientY, innerHeight - menuHeight - 8)),
+      tabId,
+    });
+  };
+
+  const minimizeAppWindow = () => {
+    void minimizeWindow().catch((error) => {
+      showError(`Could not minimize window: ${String(error)}`);
+    });
+  };
+
+  const toggleAppWindowMaximized = () => {
+    void toggleMaximizeWindow()
+      .then(setWindowMaximized)
+      .catch((error) => {
+        showError(`Could not resize window: ${String(error)}`);
+      });
+  };
+
+  const closeApp = () => {
+    void closeAppWindow().catch((error) => {
+      showError(`Could not close window: ${String(error)}`);
+    });
+  };
+
   const previewable = activeTab ? isMarkdownFile(activeTab.name) : false;
   const showPreview = previewable && previewVisible;
 
@@ -775,6 +891,7 @@ function App() {
       className="app-shell"
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => void onBrowserDrop(event)}
+      onContextMenu={openContextMenu}
     >
       <header className="top-bar">
         <div className="menu-anchor" ref={menuRef}>
@@ -984,6 +1101,42 @@ function App() {
             )}
           </button>
         </div>
+
+        <div className="window-controls" aria-label="Window controls">
+          <button
+            className="window-control-button"
+            type="button"
+            onClick={minimizeAppWindow}
+            title="Minimize"
+            aria-label="Minimize window"
+          >
+            <Minus size={16} strokeWidth={1.7} />
+          </button>
+          <button
+            className="window-control-button"
+            type="button"
+            onClick={toggleAppWindowMaximized}
+            title={windowMaximized ? "Restore" : "Maximize"}
+            aria-label={
+              windowMaximized ? "Restore window" : "Maximize window"
+            }
+          >
+            {windowMaximized ? (
+              <RestoreIcon size={13} strokeWidth={1.7} />
+            ) : (
+              <Square size={13} strokeWidth={1.7} />
+            )}
+          </button>
+          <button
+            className="window-control-button window-close-button"
+            type="button"
+            onClick={closeApp}
+            title="Close"
+            aria-label="Close window"
+          >
+            <X size={16} strokeWidth={1.8} />
+          </button>
+        </div>
       </header>
 
       <main
@@ -1087,6 +1240,32 @@ function App() {
           ) : null}
         </div>
       </footer>
+
+      {contextMenu ? (
+        <div
+          className="context-menu"
+          ref={contextMenuRef}
+          role="menu"
+          aria-label="File actions"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <button
+            className="menu-item"
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              const tabId = contextMenu.tabId;
+              setContextMenu(null);
+              void saveTab(tabId, true);
+            }}
+          >
+            <Save size={16} strokeWidth={1.8} />
+            <span>Save As...</span>
+            <kbd>Ctrl+Shift+S</kbd>
+          </button>
+        </div>
+      ) : null}
 
       {pendingCloseTab ? (
         <div
