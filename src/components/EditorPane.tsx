@@ -35,6 +35,8 @@ type EditorPaneProps = {
   value: string;
   name: string;
   themeMode: ThemeMode;
+  wordWrap: boolean;
+  tabSize: number;
   initialCursor: number;
   initialScrollTop: number;
   onChange: (value: string) => void;
@@ -60,8 +62,8 @@ function editorTheme(themeMode: ThemeMode) {
       },
       ".cm-scroller": {
         overflow: "auto",
-        fontFamily: "var(--font-mono)",
-        lineHeight: "1.65",
+        fontFamily: "var(--editor-font-family, var(--font-mono))",
+        lineHeight: "var(--editor-line-height, 1.65)",
       },
       ".cm-content": {
         padding: "18px 0 80px",
@@ -115,6 +117,8 @@ export function EditorPane({
   value,
   name,
   themeMode,
+  wordWrap,
+  tabSize,
   initialCursor,
   initialScrollTop,
   onChange,
@@ -126,6 +130,7 @@ export function EditorPane({
   const viewRef = useRef<EditorView | null>(null);
   const themeCompartment = useRef(new Compartment());
   const languageCompartment = useRef(new Compartment());
+  const formattingCompartment = useRef(new Compartment());
   const callbacksRef = useRef({
     onChange,
     onCursorChange,
@@ -178,7 +183,10 @@ export function EditorPane({
           ...foldKeymap,
           ...searchKeymap,
         ]),
-        EditorView.lineWrapping,
+        formattingCompartment.current.of([
+          EditorState.tabSize.of(tabSize),
+          wordWrap ? EditorView.lineWrapping : [],
+        ]),
         languageCompartment.current.of(languageExtension(name)),
         themeCompartment.current.of(themeExtensions(themeMode)),
         editorTheme(themeMode),
@@ -257,6 +265,19 @@ export function EditorPane({
       ),
     });
   }, [themeMode]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) {
+      return;
+    }
+    view.dispatch({
+      effects: formattingCompartment.current.reconfigure([
+        EditorState.tabSize.of(tabSize),
+        wordWrap ? EditorView.lineWrapping : [],
+      ]),
+    });
+  }, [tabSize, wordWrap]);
 
   return <div className="editor-host" ref={hostRef} />;
 }

@@ -21,13 +21,34 @@ export type WorkspaceSnapshot = {
   zoomLevel?: number;
 };
 
+export type EditorSettings = {
+  fontFamily: string;
+  fontSize: number;
+  lineHeight: number;
+  tabSize: number;
+  wordWrap: boolean;
+};
+
+export type PreviewSettings = {
+  fontFamily: string;
+  fontSize: number;
+  maxWidth: number;
+};
+
+export type BehaviorSettings = {
+  restoreUnsavedTabs: boolean;
+  confirmOnClose: boolean;
+};
+
 export type UserSettings = {
-  version: 1;
-  updatedAt: number;
+  version: 2;
   themeMode: ThemeMode;
   previewVisible: boolean;
   splitPercent: number;
   zoomLevel: number;
+  editor: EditorSettings;
+  preview: PreviewSettings;
+  behavior: BehaviorSettings;
 };
 
 export type FilePayload = {

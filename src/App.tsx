@@ -11,6 +11,7 @@ import {
   Minus,
   Moon,
   Save,
+  Settings2,
   Square,
   Sun,
   TriangleAlert,
@@ -34,13 +35,17 @@ import {
   chooseSavePath,
   chooseTextFile,
   closeAppWindow,
+  copyText,
   listenForFileDrops,
   listenForWindowMaximized,
   loadStartupFiles,
   minimizeWindow,
   persistWorkspace,
   persistSettings,
+  prepareSettingsFile,
   readFile,
+  renameFile,
+  revealFile,
   restoreWorkspace,
   restoreSettings,
   setWindowTitle,
@@ -48,7 +53,23 @@ import {
   toggleMaximizeWindow,
   writeFile,
 } from "./lib/platform";
-import type { EditorTab, FilePayload, ThemeMode } from "./types";
+import {
+  createDefaultUserSettings,
+  DEFAULT_BEHAVIOR_SETTINGS,
+  DEFAULT_EDITOR_SETTINGS,
+  DEFAULT_PREVIEW_SETTINGS,
+  parseUserSettings,
+  serializeUserSettings,
+} from "./lib/settings";
+import type {
+  BehaviorSettings,
+  EditorSettings,
+  EditorTab,
+  FilePayload,
+  PreviewSettings,
+  ThemeMode,
+  UserSettings,
+} from "./types";
 
 let untitledCounter = 1;
 const MIN_ZOOM = 0.5;
@@ -128,9 +149,19 @@ function App() {
   const [splitPercent, setSplitPercent] = useState(0.5);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [isResizing, setIsResizing] = useState(false);
-  const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(
-    null,
+  const [editorSettings, setEditorSettings] = useState<EditorSettings>(
+    DEFAULT_EDITOR_SETTINGS,
   );
+  const [previewSettings, setPreviewSettings] = useState<PreviewSettings>(
+    DEFAULT_PREVIEW_SETTINGS,
+  );
+  const [behaviorSettings, setBehaviorSettings] = useState<BehaviorSettings>(
+    DEFAULT_BEHAVIOR_SETTINGS,
+  );
+  const [settingsFilePath, setSettingsFilePath] = useState<string | null>(null);
+  const [pendingCloseTabIds, setPendingCloseTabIds] = useState<string[]>([]);
+  const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [tabScrollState, setTabScrollState] = useState({
     hasOverflow: false,
@@ -155,6 +186,7 @@ function App() {
   const menuRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const firstMenuItemRef = useRef<HTMLButtonElement>(null);
+  const firstTabContextMenuItemRef = useRef<HTMLButtonElement>(null);
   const cancelCloseButtonRef = useRef<HTMLButtonElement>(null);
 
   activeTabIdRef.current = activeTabId;
@@ -165,8 +197,43 @@ function App() {
     [tabs, activeTabId],
   );
   const pendingCloseTab = useMemo(
-    () => tabs.find((tab) => tab.id === pendingCloseTabId) ?? null,
-    [pendingCloseTabId, tabs],
+    () =>
+      pendingCloseTabIds.length === 1
+        ? tabs.find((tab) => tab.id === pendingCloseTabIds[0]) ?? null
+        : null,
+    [pendingCloseTabIds, tabs],
+  );
+  const pendingCloseTabs = useMemo(
+    () =>
+      pendingCloseTabIds
+        .map((id) => tabs.find((tab) => tab.id === id))
+        .filter((tab): tab is EditorTab => Boolean(tab)),
+    [pendingCloseTabIds, tabs],
+  );
+  const pendingDirtyTabs = useMemo(
+    () => pendingCloseTabs.filter(isDirty),
+    [pendingCloseTabs],
+  );
+  const currentSettings = useMemo<UserSettings>(
+    () => ({
+      version: 2,
+      themeMode,
+      previewVisible,
+      splitPercent,
+      zoomLevel,
+      editor: editorSettings,
+      preview: previewSettings,
+      behavior: behaviorSettings,
+    }),
+    [
+      behaviorSettings,
+      editorSettings,
+      previewSettings,
+      previewVisible,
+      splitPercent,
+      themeMode,
+      zoomLevel,
+    ],
   );
 
   const showError = useCallback((message: string) => {
@@ -260,30 +327,57 @@ function App() {
         restoreSettings(),
       ]);
       const startupPaths = await loadStartupFiles();
+      const fallbackTheme = restored?.themeMode ?? initialTheme();
+      const effectiveSettings =
+        settings ??
+        {
+          ...createDefaultUserSettings(fallbackTheme),
+          previewVisible: restored?.previewVisible ?? true,
+          splitPercent: normalizeSplit(restored?.splitPercent),
+          zoomLevel: normalizeZoom(restored?.zoomLevel),
+        };
+      const settingsFile = await prepareSettingsFile(
+        serializeUserSettings(effectiveSettings),
+      ).catch((error) => {
+        if (!cancelled) {
+          showError(`Could not prepare settings file: ${String(error)}`);
+        }
+        return null;
+      });
 
       if (cancelled) {
         return;
       }
 
       if (restored) {
-        setTabs(restored.tabs);
-        setActiveTabId(restored.activeTabId);
+        const restoredTabs = effectiveSettings.behavior.restoreUnsavedTabs
+          ? restored.tabs
+          : restored.tabs.filter((tab) => !isDirty(tab));
+        if (restoredTabs.length > 0) {
+          const nextActive =
+            restoredTabs.find((tab) => tab.id === restored.activeTabId) ??
+            restoredTabs[0];
+          setTabs(restoredTabs);
+          setActiveTabId(nextActive.id);
+        } else {
+          const tab = createUntitledTab();
+          setTabs([tab]);
+          setActiveTabId(tab.id);
+        }
       } else {
         const tab = createUntitledTab();
         setTabs([tab]);
         setActiveTabId(tab.id);
       }
 
-      setThemeMode(settings?.themeMode ?? restored?.themeMode ?? initialTheme());
-      setPreviewVisible(
-        settings?.previewVisible ?? restored?.previewVisible ?? true,
-      );
-      setSplitPercent(
-        normalizeSplit(settings?.splitPercent ?? restored?.splitPercent),
-      );
-      setZoomLevel(
-        normalizeZoom(settings?.zoomLevel ?? restored?.zoomLevel),
-      );
+      setThemeMode(effectiveSettings.themeMode);
+      setPreviewVisible(effectiveSettings.previewVisible);
+      setSplitPercent(normalizeSplit(effectiveSettings.splitPercent));
+      setZoomLevel(normalizeZoom(effectiveSettings.zoomLevel));
+      setEditorSettings(effectiveSettings.editor);
+      setPreviewSettings(effectiveSettings.preview);
+      setBehaviorSettings(effectiveSettings.behavior);
+      setSettingsFilePath(settingsFile?.path ?? null);
       setReady(true);
 
       if (startupPaths.length > 0) {
@@ -297,7 +391,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [openPaths]);
+  }, [openPaths, showError]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
@@ -400,6 +494,9 @@ function App() {
       return;
     }
 
+    const frame = requestAnimationFrame(() => {
+      firstTabContextMenuItemRef.current?.focus();
+    });
     const closeContextMenu = () => setContextMenu(null);
     const closeOnPointerDown = (event: PointerEvent) => {
       if (
@@ -421,6 +518,7 @@ function App() {
     window.addEventListener("keydown", closeOnEscape);
 
     return () => {
+      cancelAnimationFrame(frame);
       document.removeEventListener("pointerdown", closeOnPointerDown);
       window.removeEventListener("blur", closeContextMenu);
       window.removeEventListener("resize", closeContextMenu);
@@ -460,20 +558,22 @@ function App() {
     };
   }, [activeTabId, ready, showError, tabs, themeMode, previewVisible]);
 
+  const settingsTab = useMemo(
+    () =>
+      settingsFilePath
+        ? tabs.find((tab) => samePath(tab.path, settingsFilePath)) ?? null
+        : null,
+    [settingsFilePath, tabs],
+  );
+  const settingsTabDirty = settingsTab ? isDirty(settingsTab) : false;
+
   useEffect(() => {
-    if (!ready) {
+    if (!ready || settingsTabDirty) {
       return;
     }
 
     const timer = window.setTimeout(() => {
-      void persistSettings({
-        version: 1,
-        updatedAt: Date.now(),
-        themeMode,
-        previewVisible,
-        splitPercent,
-        zoomLevel,
-      }).catch((error) => {
+      void persistSettings(currentSettings).catch((error) => {
         showError(`Could not save settings: ${String(error)}`);
       });
     }, 250);
@@ -481,14 +581,7 @@ function App() {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [
-    previewVisible,
-    ready,
-    showError,
-    splitPercent,
-    themeMode,
-    zoomLevel,
-  ]);
+  }, [currentSettings, ready, settingsTabDirty, showError]);
 
   useEffect(() => {
     const title = activeTab
@@ -547,6 +640,39 @@ function App() {
     }
   }, [focusPath, showError]);
 
+  const applyUserSettings = useCallback((settings: UserSettings) => {
+    setThemeMode(settings.themeMode);
+    setPreviewVisible(settings.previewVisible);
+    setSplitPercent(normalizeSplit(settings.splitPercent));
+    setZoomLevel(normalizeZoom(settings.zoomLevel));
+    setEditorSettings(settings.editor);
+    setPreviewSettings(settings.preview);
+    setBehaviorSettings(settings.behavior);
+  }, []);
+
+  const openSettingsFile = useCallback(async () => {
+    try {
+      const payload = await prepareSettingsFile(
+        serializeUserSettings(currentSettings),
+      );
+      setSettingsFilePath(payload.path);
+      const existing = tabsRef.current.find((tab) =>
+        samePath(tab.path, payload.path),
+      );
+      if (existing) {
+        setActiveTabId(existing.id);
+        setPreviewVisible(false);
+        return;
+      }
+      const tab = tabFromPayload(payload);
+      setTabs((current) => [...current, tab]);
+      setActiveTabId(tab.id);
+      setPreviewVisible(false);
+    } catch (error) {
+      showError(`Could not open settings file: ${String(error)}`);
+    }
+  }, [currentSettings, showError]);
+
   const saveTab = useCallback(
     async (tabId: string, saveAs = false) => {
       const tab = tabsRef.current.find((candidate) => candidate.id === tabId);
@@ -563,7 +689,16 @@ function App() {
       }
 
       try {
-        await writeFile(path, tab.content);
+        const isSettingsFile =
+          settingsFilePath !== null && samePath(path, settingsFilePath);
+        const parsedSettings = isSettingsFile
+          ? parseUserSettings(tab.content)
+          : null;
+        const content =
+          parsedSettings !== null
+            ? serializeUserSettings(parsedSettings)
+            : tab.content;
+        await writeFile(path, content);
         const normalizedName = fileName(path);
         setTabs((current) =>
           current.map((candidate) =>
@@ -572,60 +707,138 @@ function App() {
                   ...candidate,
                   path,
                   name: normalizedName,
-                  savedContent: candidate.content,
+                  content: isSettingsFile ? content : candidate.content,
+                  savedContent: content,
                 }
               : candidate,
           ),
         );
+        if (parsedSettings) {
+          setSettingsFilePath(path);
+          applyUserSettings(parsedSettings);
+        }
       } catch (error) {
         showError(`Could not save ${tab.name}: ${String(error)}`);
       }
     },
-    [showError],
+    [applyUserSettings, settingsFilePath, showError],
   );
 
-  const removeTab = useCallback((tabId: string) => {
+  const removeTabs = useCallback((tabIds: string[]) => {
+    const ids = new Set(tabIds);
+    if (ids.size === 0) {
+      return;
+    }
     const current = tabsRef.current;
-    const index = current.findIndex((tab) => tab.id === tabId);
-    if (index === -1) {
+    const firstRemovedIndex = current.findIndex((tab) => ids.has(tab.id));
+    if (firstRemovedIndex === -1) {
       return;
     }
 
-    const next = current.filter((candidate) => candidate.id !== tabId);
+    const next = current.filter((candidate) => !ids.has(candidate.id));
     setTabs(next);
-    if (activeTabIdRef.current === tabId) {
-      const fallback = next[Math.min(index, next.length - 1)] ?? null;
+    if (activeTabIdRef.current && ids.has(activeTabIdRef.current)) {
+      const fallback =
+        next[Math.min(firstRemovedIndex, next.length - 1)] ?? null;
       setActiveTabId(fallback?.id ?? null);
     }
   }, []);
 
+  const requestCloseTabs = useCallback(
+    (tabIds: string[]) => {
+      const uniqueIds = [...new Set(tabIds)];
+      const closingTabs = tabsRef.current.filter((tab) =>
+        uniqueIds.includes(tab.id),
+      );
+      if (closingTabs.length === 0) {
+        return;
+      }
+      const ids = closingTabs.map((tab) => tab.id);
+      if (
+        !behaviorSettings.confirmOnClose ||
+        closingTabs.every((tab) => !isDirty(tab))
+      ) {
+        removeTabs(ids);
+        return;
+      }
+      setPendingCloseTabIds(ids);
+    },
+    [behaviorSettings.confirmOnClose, removeTabs],
+  );
+
   const closeTab = useCallback(
     (tabId: string) => {
-      const tab = tabsRef.current.find((candidate) => candidate.id === tabId);
-      if (!tab) {
-        return;
-      }
-      if (isDirty(tab)) {
-        setPendingCloseTabId(tabId);
-        return;
-      }
-      removeTab(tabId);
+      requestCloseTabs([tabId]);
     },
-    [removeTab],
+    [requestCloseTabs],
   );
 
   const cancelPendingClose = useCallback(() => {
-    setPendingCloseTabId(null);
+    setPendingCloseTabIds([]);
   }, []);
 
   const confirmPendingClose = useCallback(() => {
-    if (!pendingCloseTabId) {
+    if (pendingCloseTabIds.length === 0) {
       return;
     }
-    const tabId = pendingCloseTabId;
-    setPendingCloseTabId(null);
-    removeTab(tabId);
-  }, [pendingCloseTabId, removeTab]);
+    const tabIds = pendingCloseTabIds;
+    setPendingCloseTabIds([]);
+    removeTabs(tabIds);
+  }, [pendingCloseTabIds, removeTabs]);
+
+  const beginTabRename = useCallback((tabId: string) => {
+    const tab = tabsRef.current.find((candidate) => candidate.id === tabId);
+    if (!tab) {
+      return;
+    }
+    setContextMenu(null);
+    setRenamingTabId(tabId);
+    setRenameDraft(tab.name);
+  }, []);
+
+  const cancelTabRename = useCallback(() => {
+    setRenamingTabId(null);
+    setRenameDraft("");
+  }, []);
+
+  const commitTabRename = useCallback(
+    async (tabId: string) => {
+      const tab = tabsRef.current.find((candidate) => candidate.id === tabId);
+      const nextName = renameDraft.trim();
+      if (!tab || !nextName || nextName === tab.name) {
+        cancelTabRename();
+        return;
+      }
+      if (nextName === "." || nextName === ".." || /[\\/]/.test(nextName)) {
+        showError("File names cannot contain path separators.");
+        return;
+      }
+
+      try {
+        const nextPath = tab.path
+          ? await renameFile(tab.path, nextName)
+          : null;
+        setTabs((current) =>
+          current.map((candidate) =>
+            candidate.id === tabId
+              ? {
+                  ...candidate,
+                  path: nextPath ?? candidate.path,
+                  name: fileName(nextPath ?? nextName),
+                }
+              : candidate,
+          ),
+        );
+        if (tab.path && settingsFilePath && samePath(tab.path, settingsFilePath)) {
+          setSettingsFilePath(nextPath);
+        }
+        cancelTabRename();
+      } catch (error) {
+        showError(`Could not rename ${tab.name}: ${String(error)}`);
+      }
+    },
+    [cancelTabRename, renameDraft, settingsFilePath, showError],
+  );
 
   const changeZoom = useCallback((delta: number) => {
     setZoomLevel((current) =>
@@ -685,7 +898,7 @@ function App() {
   };
 
   useEffect(() => {
-    if (!pendingCloseTabId) {
+    if (pendingCloseTabIds.length === 0) {
       return;
     }
 
@@ -705,15 +918,21 @@ function App() {
       cancelAnimationFrame(frame);
       window.removeEventListener("keydown", onKeyDown, true);
     };
-  }, [cancelPendingClose, pendingCloseTabId]);
+  }, [cancelPendingClose, pendingCloseTabIds]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (pendingCloseTabId) {
+      if (pendingCloseTabIds.length > 0) {
         return;
       }
       const modifier = event.ctrlKey || event.metaKey;
       if (!modifier) {
+        if (event.key === "F2" && activeTabIdRef.current) {
+          event.preventDefault();
+          event.stopPropagation();
+          beginTabRename(activeTabIdRef.current);
+          return;
+        }
         const target = event.target;
         if (
           target instanceof HTMLElement &&
@@ -781,6 +1000,9 @@ function App() {
       } else if (event.key.toLowerCase() === "n") {
         event.preventDefault();
         createNewTab();
+      } else if (event.key === ",") {
+        event.preventDefault();
+        void openSettingsFile();
       } else if (event.key.toLowerCase() === "w") {
         event.preventDefault();
         if (activeTabIdRef.current) {
@@ -793,11 +1015,13 @@ function App() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [
     changeZoom,
+    beginTabRename,
     closeTab,
     compactLayout,
     createNewTab,
     openFilePicker,
-    pendingCloseTabId,
+    openSettingsFile,
+    pendingCloseTabIds,
     saveTab,
   ]);
 
@@ -838,30 +1062,86 @@ function App() {
 
   const openContextMenu = (event: React.MouseEvent) => {
     const target = event.target;
-    if (
-      !(target instanceof Element) ||
-      !target.closest(".top-bar, .preview-pane")
-    ) {
+    if (!(target instanceof Element)) {
+      return;
+    }
+    const tabElement = target.closest<HTMLElement>(".tab[data-tab-id]");
+    if (!tabElement) {
       return;
     }
 
     event.preventDefault();
-    const tabElement = target.closest<HTMLElement>(".tab[data-tab-id]");
-    const tabId = tabElement?.dataset.tabId ?? activeTabId;
+    event.stopPropagation();
+    const tabId = tabElement.dataset.tabId;
     if (!tabId) {
-      setContextMenu(null);
       return;
     }
 
-    const menuWidth = 188;
-    const menuHeight = 48;
+    const menuWidth = 214;
+    const menuHeight = 294;
     setMenuOpen(false);
+    setActiveTabId(tabId);
+    setPreviewVisible(
+      isMarkdownFile(
+        tabsRef.current.find((tab) => tab.id === tabId)?.name ?? "",
+      ),
+    );
     setContextMenu({
       x: Math.max(8, Math.min(event.clientX, innerWidth - menuWidth - 8)),
       y: Math.max(8, Math.min(event.clientY, innerHeight - menuHeight - 8)),
       tabId,
     });
   };
+
+  const onTabContextAction = useCallback(
+    (action: string, tabId: string) => {
+      const currentTabs = tabsRef.current;
+      const index = currentTabs.findIndex((tab) => tab.id === tabId);
+      const tab = index >= 0 ? currentTabs[index] : null;
+      setContextMenu(null);
+      if (!tab) {
+        return;
+      }
+
+      if (action === "close") {
+        closeTab(tabId);
+      } else if (action === "close-others") {
+        requestCloseTabs(
+          currentTabs.filter((candidate) => candidate.id !== tabId).map((candidate) => candidate.id),
+        );
+      } else if (action === "close-right") {
+        requestCloseTabs(currentTabs.slice(index + 1).map((candidate) => candidate.id));
+      } else if (action === "close-saved") {
+        requestCloseTabs(
+          currentTabs
+            .filter((candidate) => !isDirty(candidate))
+            .map((candidate) => candidate.id),
+        );
+      } else if (action === "copy-path") {
+        if (!tab.path) {
+          return;
+        }
+        void copyText(tab.path).catch((error) => {
+          showError(`Could not copy the file path: ${String(error)}`);
+        });
+      } else if (action === "open-folder") {
+        if (!tab.path) {
+          return;
+        }
+        void revealFile(tab.path).catch((error) => {
+          showError(`Could not open the containing folder: ${String(error)}`);
+        });
+      } else if (action === "rename") {
+        beginTabRename(tabId);
+      }
+    },
+    [
+      beginTabRename,
+      closeTab,
+      requestCloseTabs,
+      showError,
+    ],
+  );
 
   const minimizeAppWindow = () => {
     void minimizeWindow().catch((error) => {
@@ -885,10 +1165,23 @@ function App() {
 
   const previewable = activeTab ? isMarkdownFile(activeTab.name) : false;
   const showPreview = previewable && previewVisible;
+  const contextMenuTab = contextMenu
+    ? tabs.find((tab) => tab.id === contextMenu.tabId) ?? null
+    : null;
 
   return (
     <div
       className="app-shell"
+      style={
+        {
+          "--editor-font-family": editorSettings.fontFamily,
+          "--editor-font-size": `${editorSettings.fontSize}px`,
+          "--editor-line-height": String(editorSettings.lineHeight),
+          "--preview-font-family": previewSettings.fontFamily,
+          "--preview-font-size": `${previewSettings.fontSize}px`,
+          "--preview-max-width": `${previewSettings.maxWidth}px`,
+        } as CSSProperties
+      }
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => void onBrowserDrop(event)}
       onContextMenu={openContextMenu}
@@ -965,6 +1258,19 @@ function App() {
                 role="menuitem"
                 onClick={() => {
                   setMenuOpen(false);
+                  void openSettingsFile();
+                }}
+              >
+                <Settings2 size={16} strokeWidth={1.8} />
+                <span>Settings</span>
+                <kbd>Ctrl+,</kbd>
+              </button>
+              <button
+                className="menu-item"
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
                   setThemeMode((current) =>
                     current === "dark" ? "light" : "dark",
                   );
@@ -1029,9 +1335,38 @@ function App() {
               size={14}
               strokeWidth={1.7}
             />
-            <span className={`tab-name ${isDirty(tab) ? "is-dirty" : ""}`}>
-              {tab.name}
-            </span>
+            {renamingTabId === tab.id ? (
+              <input
+                className="tab-rename-input"
+                value={renameDraft}
+                aria-label={`Rename ${tab.name}`}
+                autoFocus
+                onChange={(event) => setRenameDraft(event.target.value)}
+                onClick={(event) => event.stopPropagation()}
+                onBlur={() => void commitTabRename(tab.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void commitTabRename(tab.id);
+                  } else if (event.key === "Escape") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    cancelTabRename();
+                  }
+                }}
+              />
+            ) : (
+              <span
+                className={`tab-name ${isDirty(tab) ? "is-dirty" : ""}`}
+                onDoubleClick={(event) => {
+                  event.stopPropagation();
+                  beginTabRename(tab.id);
+                }}
+              >
+                {tab.name}
+              </span>
+            )}
             <span
               className="tab-close"
               role="button"
@@ -1067,15 +1402,6 @@ function App() {
           <ChevronRight size={16} strokeWidth={1.8} />
         </button>
 
-        <button
-          className="new-tab-button"
-          onClick={createNewTab}
-          title="New file"
-          aria-label="New file"
-        >
-          <FilePlus2 size={15} strokeWidth={1.8} />
-        </button>
-
         <div
           className="window-drag-region"
           data-tauri-drag-region
@@ -1083,6 +1409,14 @@ function App() {
         />
 
         <div className="tab-bar-actions">
+          <button
+            className="new-tab-button"
+            onClick={createNewTab}
+            title="New file"
+            aria-label="New file"
+          >
+            <FilePlus2 size={15} strokeWidth={1.8} />
+          </button>
           <button
             className={`preview-button ${showPreview ? "is-active" : ""}`}
             disabled={!previewable}
@@ -1156,6 +1490,8 @@ function App() {
                 value={activeTab.content}
                 name={activeTab.name}
                 themeMode={themeMode}
+                wordWrap={editorSettings.wordWrap}
+                tabSize={editorSettings.tabSize}
                 initialCursor={activeTab.cursor}
                 initialScrollTop={activeTab.scrollTop}
                 onChange={(content) =>
@@ -1190,7 +1526,15 @@ function App() {
                   onPointerCancel={stopDividerResize}
                   onDoubleClick={() => setSplitPercent(0.5)}
                 />
-                <section className="preview-pane" aria-label="Preview">
+                <section
+                  className="preview-pane"
+                  aria-label="Preview"
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setContextMenu(null);
+                  }}
+                >
                   <MarkdownPreview
                     content={activeTab.content}
                     themeMode={themeMode}
@@ -1243,31 +1587,94 @@ function App() {
 
       {contextMenu ? (
         <div
-          className="context-menu"
+          className="context-menu tab-context-menu"
           ref={contextMenuRef}
           role="menu"
-          aria-label="File actions"
+          aria-label="Tab actions"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onContextMenu={(event) => event.preventDefault()}
         >
           <button
-            className="menu-item"
+            className="context-menu-item"
             type="button"
             role="menuitem"
-            onClick={() => {
-              const tabId = contextMenu.tabId;
-              setContextMenu(null);
-              void saveTab(tabId, true);
-            }}
+            ref={firstTabContextMenuItemRef}
+            onClick={() =>
+              onTabContextAction("close", contextMenu.tabId)
+            }
           >
-            <Save size={16} strokeWidth={1.8} />
-            <span>Save As...</span>
-            <kbd>Ctrl+Shift+S</kbd>
+            <span>關閉</span>
+            <kbd>Ctrl+W</kbd>
+          </button>
+          <button
+            className="context-menu-item"
+            type="button"
+            role="menuitem"
+            onClick={() =>
+              onTabContextAction("close-others", contextMenu.tabId)
+            }
+          >
+            <span>關閉其它索引標籤</span>
+          </button>
+          <button
+            className="context-menu-item"
+            type="button"
+            role="menuitem"
+            onClick={() =>
+              onTabContextAction("close-right", contextMenu.tabId)
+            }
+          >
+            <span>關閉右邊的項目</span>
+          </button>
+          <button
+            className="context-menu-item"
+            type="button"
+            role="menuitem"
+            onClick={() =>
+              onTabContextAction("close-saved", contextMenu.tabId)
+            }
+          >
+            <span>關閉已儲存的項目</span>
+          </button>
+          <div className="context-menu-separator" role="separator" />
+          <button
+            className="context-menu-item"
+            type="button"
+            role="menuitem"
+            disabled={!contextMenuTab?.path}
+            onClick={() =>
+              onTabContextAction("copy-path", contextMenu.tabId)
+            }
+          >
+            <span>複製完整路徑</span>
+          </button>
+          <button
+            className="context-menu-item"
+            type="button"
+            role="menuitem"
+            disabled={!contextMenuTab?.path}
+            onClick={() =>
+              onTabContextAction("open-folder", contextMenu.tabId)
+            }
+          >
+            <span>開啟檔案所在之資料夾</span>
+          </button>
+          <div className="context-menu-separator" role="separator" />
+          <button
+            className="context-menu-item"
+            type="button"
+            role="menuitem"
+            onClick={() =>
+              onTabContextAction("rename", contextMenu.tabId)
+            }
+          >
+            <span>重新命名</span>
+            <kbd>F2</kbd>
           </button>
         </div>
       ) : null}
 
-      {pendingCloseTab ? (
+      {pendingCloseTabs.length > 0 ? (
         <div
           className="modal-backdrop"
           onMouseDown={(event) => {
@@ -1288,9 +1695,26 @@ function App() {
                 <TriangleAlert size={18} strokeWidth={1.8} />
               </span>
               <div className="confirm-dialog-copy">
-                <h2 id="close-dialog-title">Close without saving?</h2>
+                <h2 id="close-dialog-title">
+                  {pendingCloseTabs.length === 1
+                    ? "Close without saving?"
+                    : "Close tabs without saving?"}
+                </h2>
                 <p id="close-dialog-description">
-                  <strong>{pendingCloseTab.name}</strong> has unsaved changes.
+                  {pendingCloseTab ? (
+                    <>
+                      <strong>{pendingCloseTab.name}</strong> has unsaved
+                      changes.
+                    </>
+                  ) : (
+                    <>
+                      <strong>
+                        {pendingDirtyTabs.length}{" "}
+                        {pendingDirtyTabs.length === 1 ? "tab has" : "tabs have"}
+                      </strong>{" "}
+                      unsaved changes.
+                    </>
+                  )}
                 </p>
               </div>
               <button

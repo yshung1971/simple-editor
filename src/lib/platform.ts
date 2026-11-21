@@ -5,6 +5,10 @@ import type {
   UserSettings,
   WorkspaceSnapshot,
 } from "../types";
+import {
+  parseUserSettings,
+  serializeUserSettings,
+} from "./settings";
 
 export const isTauriRuntime =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -158,36 +162,83 @@ export async function persistWorkspace(snapshot: WorkspaceSnapshot) {
 }
 
 export async function persistSettings(settings: UserSettings) {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  const content = serializeUserSettings(settings);
+  localStorage.setItem(SETTINGS_KEY, content);
 
   if (!isTauriRuntime) {
     return;
   }
   await invoke("save_settings", {
-    content: JSON.stringify(settings),
+    content,
   });
 }
 
 export async function restoreSettings(): Promise<UserSettings | null> {
-  try {
-    const localRaw = localStorage.getItem(SETTINGS_KEY);
-    const nativeRaw = isTauriRuntime
-      ? await invoke<string | null>("load_settings")
-      : null;
-    const candidates = [localRaw, nativeRaw]
-      .filter((value): value is string => Boolean(value))
-      .map((value) => JSON.parse(value) as UserSettings)
-      .filter((value) => value.version === 1);
+  const localRaw = localStorage.getItem(SETTINGS_KEY);
+  const nativeRaw = isTauriRuntime
+    ? await invoke<string | null>("load_settings").catch(() => null)
+    : null;
 
-    if (candidates.length === 0) {
-      return null;
+  for (const content of [nativeRaw, localRaw]) {
+    if (!content) {
+      continue;
     }
-    return candidates.sort(
-      (left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0),
-    )[0];
-  } catch {
-    return null;
+    try {
+      return parseUserSettings(content);
+    } catch {
+      // Try the next settings source when one file is temporarily invalid.
+    }
   }
+  return null;
+}
+
+export async function prepareSettingsFile(
+  defaultContent: string,
+): Promise<FilePayload> {
+  if (!isTauriRuntime) {
+    return {
+      path: "settings.json",
+      name: "settings.json",
+      content: defaultContent,
+    };
+  }
+  return invoke<FilePayload>("prepare_settings_file", {
+    content: defaultContent,
+  });
+}
+
+export async function renameFile(
+  path: string,
+  newName: string,
+): Promise<string> {
+  if (!isTauriRuntime) {
+    return newName;
+  }
+  return invoke<string>("rename_text_file", { path, newName });
+}
+
+export async function revealFile(path: string) {
+  if (!isTauriRuntime) {
+    throw new Error("Opening the containing folder is only available in the desktop app");
+  }
+  const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
+  await revealItemInDir(path);
+}
+
+export async function copyText(content: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(content);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = content;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.append(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
 }
 
 export function cacheWorkspace(snapshot: WorkspaceSnapshot) {

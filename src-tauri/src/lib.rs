@@ -118,6 +118,58 @@ fn load_settings(app: AppHandle) -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
+fn prepare_settings_file(app: AppHandle, content: String) -> Result<TextFilePayload, String> {
+    let path = settings_path(&app)?;
+    if !path.exists() {
+        fs::write(&path, content)
+            .map_err(|error| command_error("Could not initialize settings file", error))?;
+    }
+
+    let content = fs::read_to_string(&path)
+        .map_err(|error| command_error("Could not read settings file", error))?;
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("settings.json")
+        .to_string();
+
+    Ok(TextFilePayload {
+        path: path.to_string_lossy().into_owned(),
+        name,
+        content,
+    })
+}
+
+#[tauri::command]
+fn rename_text_file(path: String, new_name: String) -> Result<String, String> {
+    let trimmed = new_name.trim();
+    if trimmed.is_empty() {
+        return Err("The new file name cannot be empty".to_string());
+    }
+    if trimmed == "." || trimmed == ".." || trimmed.contains('/') || trimmed.contains('\\') {
+        return Err("The new file name cannot contain path separators".to_string());
+    }
+
+    let canonical = fs::canonicalize(&path)
+        .map_err(|error| command_error(&format!("Could not access {path}"), error))?;
+    if !canonical.is_file() {
+        return Err(format!("{path} is not a regular file"));
+    }
+
+    let parent = canonical
+        .parent()
+        .ok_or_else(|| format!("Could not resolve parent folder for {path}"))?;
+    let target = parent.join(trimmed);
+    if target.exists() {
+        return Err(format!("{} already exists", target.display()));
+    }
+
+    fs::rename(&canonical, &target)
+        .map_err(|error| command_error("Could not rename file", error))?;
+    Ok(target.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
 fn startup_files() -> Vec<String> {
     std::env::args()
         .skip(1)
@@ -140,6 +192,8 @@ pub fn run() {
             load_session,
             save_settings,
             load_settings,
+            prepare_settings_file,
+            rename_text_file,
             startup_files
         ])
         .run(tauri::generate_context!())
