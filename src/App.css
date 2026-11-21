@@ -129,6 +129,11 @@ button:focus-visible,
   background: var(--app-bg);
 }
 
+.app-shell.is-tab-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
 .top-bar {
   position: relative;
   z-index: 10;
@@ -292,6 +297,30 @@ button:focus-visible,
 
 .tab:hover {
   background: var(--surface-soft);
+}
+
+.tab.is-dragging {
+  cursor: grabbing;
+  opacity: 0.45;
+}
+
+.tab.drop-before::before,
+.tab.drop-after::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 2px;
+  background: var(--accent);
+  content: "";
+}
+
+.tab.drop-before::before {
+  left: 0;
+}
+
+.tab.drop-after::before {
+  right: 0;
 }
 
 .tab.is-active {

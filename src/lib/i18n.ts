@@ -13,6 +13,7 @@ export type AppText = {
   scrollTabsLeft: string;
   scrollTabsRight: string;
   openFiles: string;
+  dragToReorder: string;
   middleClickToClose: string;
   showPreview: string;
   hidePreview: string;
@@ -66,6 +67,7 @@ const EN_TEXT: AppText = {
   scrollTabsLeft: "Scroll tabs left",
   scrollTabsRight: "Scroll tabs right",
   openFiles: "Open files",
+  dragToReorder: "drag to reorder",
   middleClickToClose: "middle-click to close",
   showPreview: "Show preview",
   hidePreview: "Hide preview",
@@ -122,6 +124,7 @@ const ZH_TW_TEXT: AppText = {
   scrollTabsLeft: "向左捲動分頁",
   scrollTabsRight: "向右捲動分頁",
   openFiles: "已開啟檔案",
+  dragToReorder: "拖曳可重新排序",
   middleClickToClose: "滑鼠中鍵可關閉",
   showPreview: "顯示預覽",
   hidePreview: "隱藏預覽",

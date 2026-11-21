@@ -165,6 +165,11 @@ function App() {
   const [pendingCloseTabIds, setPendingCloseTabIds] = useState<string[]>([]);
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
+  const [tabDropTarget, setTabDropTarget] = useState<{
+    tabId: string;
+    edge: "before" | "after";
+  } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [tabScrollState, setTabScrollState] = useState({
     hasOverflow: false,
@@ -191,6 +196,18 @@ function App() {
   const firstMenuItemRef = useRef<HTMLButtonElement>(null);
   const firstTabContextMenuItemRef = useRef<HTMLButtonElement>(null);
   const cancelCloseButtonRef = useRef<HTMLButtonElement>(null);
+  const tabPointerDragRef = useRef<{
+    pointerId: number;
+    sourceId: string;
+    startX: number;
+    startY: number;
+    dragging: boolean;
+  } | null>(null);
+  const tabDropTargetRef = useRef<{
+    tabId: string;
+    edge: "before" | "after";
+  } | null>(null);
+  const suppressTabClickRef = useRef(false);
 
   activeTabIdRef.current = activeTabId;
   tabsRef.current = tabs;
@@ -625,6 +642,145 @@ function App() {
     },
     [],
   );
+
+  const moveTab = useCallback(
+    (
+      sourceId: string,
+      targetId: string,
+      edge: "before" | "after",
+    ) => {
+      if (sourceId === targetId) {
+        return;
+      }
+
+      setTabs((current) => {
+        const source = current.find((tab) => tab.id === sourceId);
+        if (!source || !current.some((tab) => tab.id === targetId)) {
+          return current;
+        }
+
+        const next = current.filter((tab) => tab.id !== sourceId);
+        const targetIndex = next.findIndex((tab) => tab.id === targetId);
+        if (targetIndex === -1) {
+          return current;
+        }
+        next.splice(
+          edge === "before" ? targetIndex : targetIndex + 1,
+          0,
+          source,
+        );
+
+        return next.every((tab, index) => tab.id === current[index]?.id)
+          ? current
+          : next;
+      });
+    },
+    [],
+  );
+
+  const updateTabDropTarget = useCallback(
+    (
+      target: {
+        tabId: string;
+        edge: "before" | "after";
+      } | null,
+    ) => {
+      tabDropTargetRef.current = target;
+      setTabDropTarget(target);
+    },
+    [],
+  );
+
+  const clearTabDrag = useCallback(() => {
+    tabPointerDragRef.current = null;
+    updateTabDropTarget(null);
+    setDraggedTabId(null);
+  }, [updateTabDropTarget]);
+
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => {
+      const drag = tabPointerDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) {
+        return;
+      }
+
+      if (
+        !drag.dragging &&
+        Math.hypot(
+          event.clientX - drag.startX,
+          event.clientY - drag.startY,
+        ) < 5
+      ) {
+        return;
+      }
+
+      if (!drag.dragging) {
+        drag.dragging = true;
+        setDraggedTabId(drag.sourceId);
+      }
+
+      event.preventDefault();
+      const target = document
+        .elementFromPoint(event.clientX, event.clientY)
+        ?.closest<HTMLElement>(".tab[data-tab-id]");
+      const targetId = target?.dataset.tabId;
+      if (!target || !targetId || targetId === drag.sourceId) {
+        updateTabDropTarget(null);
+        return;
+      }
+
+      const bounds = target.getBoundingClientRect();
+      const edge =
+        event.clientX < bounds.left + bounds.width / 2 ? "before" : "after";
+      const current = tabDropTargetRef.current;
+      if (current?.tabId !== targetId || current.edge !== edge) {
+        updateTabDropTarget({ tabId: targetId, edge });
+      }
+    };
+
+    const finishPointerDrag = (event: PointerEvent, cancelled = false) => {
+      const drag = tabPointerDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) {
+        return;
+      }
+
+      if (drag.dragging) {
+        suppressTabClickRef.current = true;
+        window.setTimeout(() => {
+          suppressTabClickRef.current = false;
+        }, 0);
+        const target = tabDropTargetRef.current;
+        if (!cancelled && target) {
+          moveTab(drag.sourceId, target.tabId, target.edge);
+        }
+      }
+      clearTabDrag();
+    };
+
+    const onPointerUp = (event: PointerEvent) => {
+      finishPointerDrag(event);
+    };
+    const onPointerCancel = (event: PointerEvent) => {
+      finishPointerDrag(event, true);
+    };
+    const onWindowBlur = () => {
+      clearTabDrag();
+    };
+
+    window.addEventListener("pointermove", onPointerMove, {
+      passive: false,
+    });
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerCancel);
+    window.addEventListener("blur", onWindowBlur);
+
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerCancel);
+      window.removeEventListener("blur", onWindowBlur);
+    };
+  }, [clearTabDrag, moveTab, updateTabDropTarget]);
 
   const createNewTab = useCallback(() => {
     const tab = createUntitledTab();
@@ -1183,7 +1339,7 @@ function App() {
 
   return (
     <div
-      className="app-shell"
+      className={`app-shell ${draggedTabId ? "is-tab-dragging" : ""}`}
       style={
         {
           "--editor-font-family": editorSettings.fontFamily,
@@ -1323,10 +1479,41 @@ function App() {
         >
         {tabs.map((tab) => (
           <button
-            className={`tab ${tab.id === activeTabId ? "is-active" : ""}`}
             key={tab.id}
             data-tab-id={tab.id}
-            onClick={() => {
+            className={`tab ${tab.id === activeTabId ? "is-active" : ""} ${
+              draggedTabId === tab.id ? "is-dragging" : ""
+            } ${
+              tabDropTarget?.tabId === tab.id &&
+              draggedTabId !== tab.id
+                ? `drop-${tabDropTarget.edge}`
+                : ""
+            }`}
+            onPointerDown={(event) => {
+              if (event.button !== 0 || renamingTabId === tab.id) {
+                return;
+              }
+              const target = event.target;
+              if (
+                target instanceof Element &&
+                target.closest(".tab-close, .tab-rename-input")
+              ) {
+                return;
+              }
+              tabPointerDragRef.current = {
+                pointerId: event.pointerId,
+                sourceId: tab.id,
+                startX: event.clientX,
+                startY: event.clientY,
+                dragging: false,
+              };
+            }}
+            onClick={(event) => {
+              if (suppressTabClickRef.current) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+              }
               setActiveTabId(tab.id);
               setPreviewVisible(isMarkdownFile(tab.name));
             }}
@@ -1342,7 +1529,7 @@ function App() {
                 event.preventDefault();
               }
             }}
-            title={`${tab.path ?? tab.name} (${text.middleClickToClose})`}
+            title={`${tab.path ?? tab.name} (${text.dragToReorder}; ${text.middleClickToClose})`}
           >
             <FileText
               className="tab-file-icon"
@@ -1420,6 +1607,10 @@ function App() {
           className="window-drag-region"
           data-tauri-drag-region
           aria-hidden="true"
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
         />
 
         <div className="tab-bar-actions">
