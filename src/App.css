@@ -254,8 +254,9 @@ button:focus-visible,
 
 .tab-strip {
   display: flex;
-  max-width: 720px;
-  flex: 0 1 720px;
+  width: max-content;
+  max-width: min(720px, 100%);
+  flex: 0 1 auto;
   align-items: stretch;
   min-width: 0;
   overflow-x: auto;

@@ -3,6 +3,7 @@ import type {
   EditorSettings,
   PreviewSettings,
   ThemeMode,
+  UiLanguage,
   UserSettings,
 } from "../types";
 
@@ -57,7 +58,8 @@ export function createDefaultUserSettings(
   themeMode: ThemeMode,
 ): UserSettings {
   return {
-    version: 2,
+    version: 3,
+    uiLanguage: "en",
     themeMode,
     previewVisible: true,
     splitPercent: 0.5,
@@ -77,9 +79,12 @@ export function normalizeUserSettings(value: unknown): UserSettings {
     root.themeMode === "light" || root.themeMode === "dark"
       ? root.themeMode
       : "dark";
+  const uiLanguage: UiLanguage =
+    root.uiLanguage === "zh-TW" ? "zh-TW" : "en";
 
   return {
-    version: 2,
+    version: 3,
+    uiLanguage,
     themeMode,
     previewVisible: booleanValue(root.previewVisible, true),
     splitPercent: clamp(finiteNumber(root.splitPercent, 0.5), 0.25, 0.75),

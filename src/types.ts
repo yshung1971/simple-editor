@@ -1,4 +1,5 @@
 export type ThemeMode = "light" | "dark";
+export type UiLanguage = "en" | "zh-TW";
 
 export type EditorTab = {
   id: string;
@@ -41,7 +42,8 @@ export type BehaviorSettings = {
 };
 
 export type UserSettings = {
-  version: 2;
+  version: 3;
+  uiLanguage: UiLanguage;
   themeMode: ThemeMode;
   previewVisible: boolean;
   splitPercent: number;

@@ -30,6 +30,7 @@ import "./App.css";
 import { EditorPane } from "./components/EditorPane";
 import { MarkdownPreview } from "./components/MarkdownPreview";
 import { isMarkdownFile, languageLabel } from "./lib/languages";
+import { appText } from "./lib/i18n";
 import {
   cacheWorkspace,
   chooseSavePath,
@@ -68,6 +69,7 @@ import type {
   FilePayload,
   PreviewSettings,
   ThemeMode,
+  UiLanguage,
   UserSettings,
 } from "./types";
 
@@ -145,6 +147,7 @@ function App() {
   const [tabs, setTabs] = useState<EditorTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [themeMode, setThemeMode] = useState<ThemeMode>(initialTheme);
+  const [uiLanguage, setUiLanguage] = useState<UiLanguage>("en");
   const [previewVisible, setPreviewVisible] = useState(true);
   const [splitPercent, setSplitPercent] = useState(0.5);
   const [zoomLevel, setZoomLevel] = useState(1);
@@ -214,9 +217,11 @@ function App() {
     () => pendingCloseTabs.filter(isDirty),
     [pendingCloseTabs],
   );
+  const text = appText(uiLanguage);
   const currentSettings = useMemo<UserSettings>(
     () => ({
-      version: 2,
+      version: 3,
+      uiLanguage,
       themeMode,
       previewVisible,
       splitPercent,
@@ -232,6 +237,7 @@ function App() {
       previewVisible,
       splitPercent,
       themeMode,
+      uiLanguage,
       zoomLevel,
     ],
   );
@@ -371,6 +377,7 @@ function App() {
       }
 
       setThemeMode(effectiveSettings.themeMode);
+      setUiLanguage(effectiveSettings.uiLanguage);
       setPreviewVisible(effectiveSettings.previewVisible);
       setSplitPercent(normalizeSplit(effectiveSettings.splitPercent));
       setZoomLevel(normalizeZoom(effectiveSettings.zoomLevel));
@@ -396,6 +403,10 @@ function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
   }, [themeMode]);
+
+  useEffect(() => {
+    document.documentElement.lang = uiLanguage;
+  }, [uiLanguage]);
 
   useEffect(() => {
     void setWebviewZoom(zoomLevel).catch((error) => {
@@ -641,6 +652,7 @@ function App() {
   }, [focusPath, showError]);
 
   const applyUserSettings = useCallback((settings: UserSettings) => {
+    setUiLanguage(settings.uiLanguage);
     setThemeMode(settings.themeMode);
     setPreviewVisible(settings.previewVisible);
     setSplitPercent(normalizeSplit(settings.splitPercent));
@@ -1192,8 +1204,8 @@ function App() {
             className="topbar-button"
             type="button"
             onClick={() => setMenuOpen((open) => !open)}
-            title="Menu"
-            aria-label="Open application menu"
+            title={text.menuButton}
+            aria-label={text.openApplicationMenu}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             aria-controls="application-menu"
@@ -1206,7 +1218,7 @@ function App() {
               className="app-menu"
               id="application-menu"
               role="menu"
-              aria-label="Application menu"
+              aria-label={text.applicationMenu}
             >
               <button
                 className="menu-item"
@@ -1219,7 +1231,7 @@ function App() {
                 }}
               >
                 <FolderOpen size={16} strokeWidth={1.8} />
-                <span>Open file</span>
+                <span>{text.openFile}</span>
                 <kbd>Ctrl+O</kbd>
               </button>
               <button
@@ -1232,7 +1244,7 @@ function App() {
                 }}
               >
                 <FilePlus2 size={16} strokeWidth={1.8} />
-                <span>New file</span>
+                <span>{text.newFile}</span>
                 <kbd>Ctrl+N</kbd>
               </button>
               <button
@@ -1248,7 +1260,7 @@ function App() {
                 }}
               >
                 <Save size={16} strokeWidth={1.8} />
-                <span>Save</span>
+                <span>{text.save}</span>
                 <kbd>Ctrl+S</kbd>
               </button>
               <div className="menu-separator" role="separator" />
@@ -1262,7 +1274,7 @@ function App() {
                 }}
               >
                 <Settings2 size={16} strokeWidth={1.8} />
-                <span>Settings</span>
+                <span>{text.settings}</span>
                 <kbd>Ctrl+,</kbd>
               </button>
               <button
@@ -1282,7 +1294,9 @@ function App() {
                   <Moon size={16} strokeWidth={1.8} />
                 )}
                 <span>
-                  {themeMode === "dark" ? "Use light theme" : "Use dark theme"}
+                  {themeMode === "dark"
+                    ? text.useLightTheme
+                    : text.useDarkTheme}
                 </span>
               </button>
             </div>
@@ -1295,15 +1309,15 @@ function App() {
           hidden={!tabScrollState.hasOverflow}
           disabled={!tabScrollState.canScrollLeft}
           onClick={() => scrollTabStrip(-1)}
-          title="Scroll tabs left"
-          aria-label="Scroll tabs left"
+          title={text.scrollTabsLeft}
+          aria-label={text.scrollTabsLeft}
         >
           <ChevronLeft size={16} strokeWidth={1.8} />
         </button>
 
         <nav
           className="tab-strip"
-          aria-label="Open files"
+          aria-label={text.openFiles}
           ref={tabStripRef}
           onScroll={updateTabScrollState}
         >
@@ -1328,7 +1342,7 @@ function App() {
                 event.preventDefault();
               }
             }}
-            title={`${tab.path ?? tab.name} (middle-click to close)`}
+            title={`${tab.path ?? tab.name} (${text.middleClickToClose})`}
           >
             <FileText
               className="tab-file-icon"
@@ -1339,7 +1353,7 @@ function App() {
               <input
                 className="tab-rename-input"
                 value={renameDraft}
-                aria-label={`Rename ${tab.name}`}
+                aria-label={`${text.rename} ${tab.name}`}
                 autoFocus
                 onChange={(event) => setRenameDraft(event.target.value)}
                 onClick={(event) => event.stopPropagation()}
@@ -1371,7 +1385,7 @@ function App() {
               className="tab-close"
               role="button"
               tabIndex={0}
-              aria-label={`Close ${tab.name}`}
+              aria-label={`${text.closeTab} ${tab.name}`}
               onClick={(event) => {
                 event.stopPropagation();
                 closeTab(tab.id);
@@ -1396,8 +1410,8 @@ function App() {
           hidden={!tabScrollState.hasOverflow}
           disabled={!tabScrollState.canScrollRight}
           onClick={() => scrollTabStrip(1)}
-          title="Scroll tabs right"
-          aria-label="Scroll tabs right"
+          title={text.scrollTabsRight}
+          aria-label={text.scrollTabsRight}
         >
           <ChevronRight size={16} strokeWidth={1.8} />
         </button>
@@ -1412,8 +1426,8 @@ function App() {
           <button
             className="new-tab-button"
             onClick={createNewTab}
-            title="New file"
-            aria-label="New file"
+            title={text.newFile}
+            aria-label={text.newFile}
           >
             <FilePlus2 size={15} strokeWidth={1.8} />
           </button>
@@ -1421,11 +1435,11 @@ function App() {
             className={`preview-button ${showPreview ? "is-active" : ""}`}
             disabled={!previewable}
             onClick={() => setPreviewVisible((visible) => !visible)}
-            title={showPreview ? "Hide preview" : "Show preview"}
+            title={showPreview ? text.hidePreview : text.showPreview}
             aria-label={
               showPreview
-                ? "Hide markdown preview"
-                : "Show markdown preview"
+                ? text.hideMarkdownPreview
+                : text.showMarkdownPreview
             }
           >
             {showPreview ? (
@@ -1441,8 +1455,8 @@ function App() {
             className="window-control-button"
             type="button"
             onClick={minimizeAppWindow}
-            title="Minimize"
-            aria-label="Minimize window"
+            title={text.minimize}
+            aria-label={text.minimizeWindow}
           >
             <Minus size={16} strokeWidth={1.7} />
           </button>
@@ -1450,9 +1464,9 @@ function App() {
             className="window-control-button"
             type="button"
             onClick={toggleAppWindowMaximized}
-            title={windowMaximized ? "Restore" : "Maximize"}
+            title={windowMaximized ? text.restore : text.maximize}
             aria-label={
-              windowMaximized ? "Restore window" : "Maximize window"
+              windowMaximized ? text.restoreWindow : text.maximizeWindow
             }
           >
             {windowMaximized ? (
@@ -1465,8 +1479,8 @@ function App() {
             className="window-control-button window-close-button"
             type="button"
             onClick={closeApp}
-            title="Close"
-            aria-label="Close window"
+            title={text.close}
+            aria-label={text.closeWindow}
           >
             <X size={16} strokeWidth={1.8} />
           </button>
@@ -1484,7 +1498,7 @@ function App() {
       >
         {activeTab ? (
           <>
-            <section className="editor-pane" aria-label="Editor">
+            <section className="editor-pane" aria-label={text.editor}>
               <EditorPane
                 key={activeTab.id}
                 value={activeTab.content}
@@ -1512,14 +1526,14 @@ function App() {
                   className="pane-divider"
                   role="separator"
                   tabIndex={0}
-                  aria-label="Resize editor and preview"
+                  aria-label={text.resizeEditorPreview}
                   aria-orientation={
                     compactLayout ? "horizontal" : "vertical"
                   }
                   aria-valuemin={Math.round(MIN_SPLIT * 100)}
                   aria-valuemax={Math.round(MAX_SPLIT * 100)}
                   aria-valuenow={Math.round(splitPercent * 100)}
-                  title="Drag to resize. Double-click to reset."
+                  title={text.resizeEditorPreviewHelp}
                   onPointerDown={startDividerResize}
                   onPointerMove={moveDivider}
                   onPointerUp={stopDividerResize}
@@ -1528,7 +1542,7 @@ function App() {
                 />
                 <section
                   className="preview-pane"
-                  aria-label="Preview"
+                  aria-label={text.preview}
                   onContextMenu={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -1548,19 +1562,19 @@ function App() {
             <div className="empty-icon">
               <FileText size={30} strokeWidth={1.35} />
             </div>
-            <h1>Open a text file</h1>
-            <p>Start with an existing document or create a blank one.</p>
+            <h1>{text.emptyTitle}</h1>
+            <p>{text.emptyDescription}</p>
             <div className="empty-actions">
               <button
                 className="primary-button"
                 onClick={() => void openFilePicker()}
               >
                 <FolderOpen size={16} />
-                Open file
+                {text.openFile}
               </button>
               <button className="secondary-button" onClick={createNewTab}>
                 <FilePlus2 size={16} />
-                New file
+                {text.newFile}
               </button>
             </div>
           </section>
@@ -1569,14 +1583,15 @@ function App() {
 
       <footer className="status-bar">
         <div className="status-path" title={activeTab?.path ?? undefined}>
-          {activeTab?.path ?? (activeTab ? "Not saved yet" : "")}
+          {activeTab?.path ?? (activeTab ? text.notSavedYet : "")}
         </div>
         <div className="status-meta">
           {activeTab ? (
             <>
               <span>{languageLabel(activeTab.name)}</span>
               <span>
-                Ln {lineColumn.line}, Col {lineColumn.column}
+                {text.line} {lineColumn.line}, {text.column}{" "}
+                {lineColumn.column}
               </span>
               <span>UTF-8</span>
               <span>{Math.round(zoomLevel * 100)}%</span>
@@ -1590,7 +1605,7 @@ function App() {
           className="context-menu tab-context-menu"
           ref={contextMenuRef}
           role="menu"
-          aria-label="Tab actions"
+          aria-label={text.tabActions}
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onContextMenu={(event) => event.preventDefault()}
         >
@@ -1603,7 +1618,7 @@ function App() {
               onTabContextAction("close", contextMenu.tabId)
             }
           >
-            <span>關閉</span>
+            <span>{text.closeTab}</span>
             <kbd>Ctrl+W</kbd>
           </button>
           <button
@@ -1614,7 +1629,7 @@ function App() {
               onTabContextAction("close-others", contextMenu.tabId)
             }
           >
-            <span>關閉其它索引標籤</span>
+            <span>{text.closeOtherTabs}</span>
           </button>
           <button
             className="context-menu-item"
@@ -1624,7 +1639,7 @@ function App() {
               onTabContextAction("close-right", contextMenu.tabId)
             }
           >
-            <span>關閉右邊的項目</span>
+            <span>{text.closeTabsRight}</span>
           </button>
           <button
             className="context-menu-item"
@@ -1634,7 +1649,7 @@ function App() {
               onTabContextAction("close-saved", contextMenu.tabId)
             }
           >
-            <span>關閉已儲存的項目</span>
+            <span>{text.closeSavedTabs}</span>
           </button>
           <div className="context-menu-separator" role="separator" />
           <button
@@ -1646,7 +1661,7 @@ function App() {
               onTabContextAction("copy-path", contextMenu.tabId)
             }
           >
-            <span>複製完整路徑</span>
+            <span>{text.copyFullPath}</span>
           </button>
           <button
             className="context-menu-item"
@@ -1657,7 +1672,7 @@ function App() {
               onTabContextAction("open-folder", contextMenu.tabId)
             }
           >
-            <span>開啟檔案所在之資料夾</span>
+            <span>{text.openContainingFolder}</span>
           </button>
           <div className="context-menu-separator" role="separator" />
           <button
@@ -1668,7 +1683,7 @@ function App() {
               onTabContextAction("rename", contextMenu.tabId)
             }
           >
-            <span>重新命名</span>
+            <span>{text.rename}</span>
             <kbd>F2</kbd>
           </button>
         </div>
@@ -1697,31 +1712,25 @@ function App() {
               <div className="confirm-dialog-copy">
                 <h2 id="close-dialog-title">
                   {pendingCloseTabs.length === 1
-                    ? "Close without saving?"
-                    : "Close tabs without saving?"}
+                    ? text.closeWithoutSaving
+                    : text.closeTabsWithoutSaving}
                 </h2>
                 <p id="close-dialog-description">
                   {pendingCloseTab ? (
                     <>
-                      <strong>{pendingCloseTab.name}</strong> has unsaved
-                      changes.
+                      <strong>{pendingCloseTab.name}</strong>{" "}
+                      {text.hasUnsavedChanges}
                     </>
                   ) : (
-                    <>
-                      <strong>
-                        {pendingDirtyTabs.length}{" "}
-                        {pendingDirtyTabs.length === 1 ? "tab has" : "tabs have"}
-                      </strong>{" "}
-                      unsaved changes.
-                    </>
+                    text.unsavedTabCount(pendingDirtyTabs.length)
                   )}
                 </p>
               </div>
               <button
                 className="dialog-close-button"
                 onClick={cancelPendingClose}
-                title="Cancel close"
-                aria-label="Cancel close"
+                title={text.cancelClose}
+                aria-label={text.cancelClose}
               >
                 <X size={15} strokeWidth={2} />
               </button>
@@ -1732,10 +1741,10 @@ function App() {
                 ref={cancelCloseButtonRef}
                 onClick={cancelPendingClose}
               >
-                Cancel
+                {text.cancel}
               </button>
               <button className="danger-button" onClick={confirmPendingClose}>
-                Close without saving
+                {text.closeWithoutSavingAction}
               </button>
             </div>
           </div>
@@ -1744,7 +1753,7 @@ function App() {
 
       {!ready ? (
         <div className="loading-screen">
-          <span>Opening editor…</span>
+          <span>{text.loading}</span>
         </div>
       ) : null}
 
