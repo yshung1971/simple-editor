@@ -201,16 +201,28 @@ export async function persistWorkspace(snapshot: WorkspaceSnapshot) {
   });
 }
 
-export async function persistSettings(settings: UserSettings) {
+export async function persistSettings(
+  settings: UserSettings,
+  expectedContent?: string | null,
+) {
   const content = serializeUserSettings(settings);
+
+  if (isTauriRuntime && expectedContent !== undefined) {
+    const currentContent = await invoke<string | null>("load_settings");
+    if (currentContent !== expectedContent && currentContent !== content) {
+      return false;
+    }
+  }
+
   localStorage.setItem(SETTINGS_KEY, content);
 
   if (!isTauriRuntime) {
-    return;
+    return true;
   }
   await invoke("save_settings", {
     content,
   });
+  return true;
 }
 
 export async function restoreSettings(): Promise<UserSettings | null> {

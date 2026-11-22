@@ -145,14 +145,18 @@ function tabFromPayload(payload: FilePayload): EditorTab {
   };
 }
 
-function samePath(left: string | null, right: string | null) {
-  if (!left || !right) {
-    return false;
+function comparablePath(path: string) {
+  let normalized = path.replaceAll("\\", "/");
+  if (normalized.startsWith("//?/UNC/")) {
+    normalized = `//${normalized.slice(8)}`;
+  } else if (normalized.startsWith("//?/")) {
+    normalized = normalized.slice(4);
   }
-  return (
-    left.replaceAll("\\", "/").toLowerCase() ===
-    right.replaceAll("\\", "/").toLowerCase()
-  );
+  return normalized.toLowerCase();
+}
+
+function samePath(left: string | null, right: string | null) {
+  return Boolean(left && right && comparablePath(left) === comparablePath(right));
 }
 
 function isDirty(tab: EditorTab) {
@@ -217,6 +221,7 @@ function App() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const activeTabIdRef = useRef(activeTabId);
   const tabsRef = useRef(tabs);
+  const lastSettingsContentRef = useRef<string | null>(null);
   const workspaceRef = useRef<HTMLElement>(null);
   const editorPaneRef = useRef<EditorPaneHandle>(null);
   const previewRef = useRef<MarkdownPreviewHandle>(null);
@@ -312,6 +317,24 @@ function App() {
       setErrorMessage((current) => (current === message ? null : current));
     }, 4500);
   }, []);
+
+  const persistCurrentSettings = useCallback(
+    async (settings: UserSettings) => {
+      const saved = await persistSettings(
+        settings,
+        lastSettingsContentRef.current,
+      );
+      if (!saved) {
+        showError(
+          "settings.json changed outside Simple Editor, so the app did not overwrite it. Restart Simple Editor to reload the file.",
+        );
+        return false;
+      }
+      lastSettingsContentRef.current = serializeUserSettings(settings);
+      return true;
+    },
+    [showError],
+  );
 
   const closeTabList = useCallback(() => {
     setTabListOpen(false);
@@ -438,7 +461,7 @@ function App() {
       ]);
       const startupPaths = await loadStartupFiles();
       const fallbackTheme = restored?.themeMode ?? initialTheme();
-      const effectiveSettings =
+      const restoredSettings =
         settings ??
         {
           ...createDefaultUserSettings(fallbackTheme),
@@ -447,22 +470,48 @@ function App() {
           zoomLevel: normalizeZoom(restored?.zoomLevel),
         };
       const settingsFile = await prepareSettingsFile(
-        serializeUserSettings(effectiveSettings),
+        serializeUserSettings(restoredSettings),
       ).catch((error) => {
         if (!cancelled) {
           showError(`Could not prepare settings file: ${String(error)}`);
         }
         return null;
       });
+      let diskSettings: UserSettings | null = null;
+      if (settingsFile) {
+        try {
+          diskSettings = parseUserSettings(settingsFile.content);
+        } catch {
+          // Keep the last valid settings source when the file is invalid.
+        }
+      }
+      const effectiveSettings = diskSettings ?? restoredSettings;
 
       if (cancelled) {
         return;
       }
 
+      lastSettingsContentRef.current = settingsFile?.content ?? null;
       if (restored) {
-        const restoredTabs = effectiveSettings.behavior.restoreUnsavedTabs
+        let restoredTabs = effectiveSettings.behavior.restoreUnsavedTabs
           ? restored.tabs
           : restored.tabs.filter((tab) => !isDirty(tab));
+        if (diskSettings && settingsFile) {
+          restoredTabs = restoredTabs.map((tab) => {
+            if (
+              !samePath(tab.path, settingsFile.path) ||
+              tab.content !== tab.savedContent ||
+              tab.content === settingsFile.content
+            ) {
+              return tab;
+            }
+            return {
+              ...tab,
+              content: settingsFile.content,
+              savedContent: settingsFile.content,
+            };
+          });
+        }
         if (restoredTabs.length > 0) {
           const nextActive =
             restoredTabs.find((tab) => tab.id === restored.activeTabId) ??
@@ -697,7 +746,7 @@ function App() {
       const settings = size
         ? { ...currentSettingsRef.current, window: size }
         : currentSettingsRef.current;
-      await persistSettings(settings).catch((error) => {
+      await persistCurrentSettings(settings).catch((error) => {
         showError(`Could not save window settings: ${String(error)}`);
       });
     }).then((unlisten) => {
@@ -712,7 +761,7 @@ function App() {
       cancelled = true;
       dispose?.();
     };
-  }, [ready, showError]);
+  }, [persistCurrentSettings, ready, showError]);
 
   useEffect(() => {
     if (!contextMenu) {
@@ -798,7 +847,7 @@ function App() {
     }
 
     const timer = window.setTimeout(() => {
-      void persistSettings(currentSettings).catch((error) => {
+      void persistCurrentSettings(currentSettings).catch((error) => {
         showError(`Could not save settings: ${String(error)}`);
       });
     }, 250);
@@ -806,7 +855,13 @@ function App() {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [currentSettings, ready, settingsTabDirty, showError]);
+  }, [
+    currentSettings,
+    persistCurrentSettings,
+    ready,
+    settingsTabDirty,
+    showError,
+  ]);
 
   useEffect(() => {
     const title = activeTab
@@ -1096,6 +1151,9 @@ function App() {
             ? serializeUserSettings(parsedSettings)
             : tab.content;
         await writeFile(path, content);
+        if (isSettingsFile) {
+          lastSettingsContentRef.current = content;
+        }
         const normalizedName = fileName(path);
         setTabs((current) =>
           current.map((candidate) =>

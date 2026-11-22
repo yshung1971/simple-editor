@@ -115,3 +115,7 @@ Simple Editor processes before changing between `single` and `multi`.
 - Saving the file from Simple Editor's Settings tab applies most UI settings immediately.
 - `behavior.instanceMode` requires a complete process restart.
 - Window dimensions are also persisted automatically when the window is closed.
+- If the settings tab is clean, Simple Editor synchronizes it with the current
+  `settings.json` content after a restart.
+- If `settings.json` changes outside Simple Editor while the app is running, the
+  app will not overwrite that external edit. Restart the app to reload it.
