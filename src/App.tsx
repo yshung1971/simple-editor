@@ -1837,6 +1837,7 @@ function App() {
                 >
                   <MarkdownPreview
                     content={activeTab.content}
+                    sourceLine={lineColumn.line}
                     themeMode={themeMode}
                   />
                 </section>

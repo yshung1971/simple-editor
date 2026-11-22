@@ -16,6 +16,7 @@ const BASE_NODE_CLASSES = new Set(["node", "default"]);
 
 type MermaidDiagramProps = {
   chart: string;
+  sourceLine?: string | number;
   themeMode: ThemeMode;
 };
 
@@ -47,6 +48,7 @@ function applyAccentPalette(svg: SVGSVGElement) {
 
 export function MermaidDiagram({
   chart,
+  sourceLine,
   themeMode,
 }: MermaidDiagramProps) {
   const reactId = useId();
@@ -176,7 +178,11 @@ export function MermaidDiagram({
   };
 
   return (
-    <div className="mermaid-block" data-mermaid-block="true">
+    <div
+      className="mermaid-block"
+      data-mermaid-block="true"
+      data-source-line={sourceLine}
+    >
       <div className="mermaid-toolbar" aria-label="Diagram zoom controls">
         <button
           type="button"
