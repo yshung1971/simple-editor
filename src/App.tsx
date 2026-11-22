@@ -1,4 +1,5 @@
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Columns2,
@@ -7,14 +8,10 @@ import {
   FilePlus2,
   FileText,
   FolderOpen,
-  LogOut,
   Menu,
   Minus,
-  Moon,
-  Save,
-  Settings2,
+  Search,
   Square,
-  Sun,
   TriangleAlert,
   X,
 } from "lucide-react";
@@ -209,6 +206,9 @@ function App() {
     y: number;
     tabId: string;
   } | null>(null);
+  const [tabListOpen, setTabListOpen] = useState(false);
+  const [tabListQuery, setTabListQuery] = useState("");
+  const [tabListPosition, setTabListPosition] = useState({ x: 8, y: 40 });
   const [windowMaximized, setWindowMaximized] = useState(false);
   const [compactLayout, setCompactLayout] = useState(() =>
     window.matchMedia("(max-width: 860px)").matches,
@@ -223,6 +223,8 @@ function App() {
   const tabStripRef = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const tabListRef = useRef<HTMLDivElement>(null);
+  const tabListInputRef = useRef<HTMLInputElement>(null);
   const firstMenuItemRef = useRef<HTMLButtonElement>(null);
   const firstTabContextMenuItemRef = useRef<HTMLButtonElement>(null);
   const cancelCloseButtonRef = useRef<HTMLButtonElement>(null);
@@ -246,6 +248,17 @@ function App() {
     () => tabs.find((tab) => tab.id === activeTabId) ?? null,
     [tabs, activeTabId],
   );
+  const filteredTabList = useMemo(() => {
+    const query = tabListQuery.trim().toLocaleLowerCase();
+    if (!query) {
+      return tabs;
+    }
+    return tabs.filter((tab) =>
+      `${tab.name}\n${displayPath(tab.path)}`
+        .toLocaleLowerCase()
+        .includes(query),
+    );
+  }, [tabs, tabListQuery]);
   const pendingCloseTab = useMemo(
     () =>
       pendingCloseTabIds.length === 1
@@ -300,6 +313,23 @@ function App() {
     }, 4500);
   }, []);
 
+  const closeTabList = useCallback(() => {
+    setTabListOpen(false);
+    setTabListQuery("");
+  }, []);
+
+  const openTabListAt = useCallback((clientX: number, clientY: number) => {
+    const menuWidth = 360;
+    setMenuOpen(false);
+    setContextMenu(null);
+    setTabListQuery("");
+    setTabListPosition({
+      x: Math.max(8, Math.min(clientX, window.innerWidth - menuWidth - 8)),
+      y: Math.max(40, Math.min(clientY, window.innerHeight - 160)),
+    });
+    setTabListOpen(true);
+  }, []);
+
   const updateTabScrollState = useCallback(() => {
     const strip = tabStripRef.current;
     if (!strip) {
@@ -346,6 +376,29 @@ function App() {
     });
     updateTabScrollState();
   }, [activeTabId, updateTabScrollState]);
+
+  const selectTabFromList = useCallback(
+    (tabId: string) => {
+      const tab = tabsRef.current.find((candidate) => candidate.id === tabId);
+      if (!tab) {
+        return;
+      }
+      closeTabList();
+      setActiveTabId(tab.id);
+      setPreviewVisible(isMarkdownFile(tab.name));
+      window.requestAnimationFrame(() => {
+        const strip = tabStripRef.current;
+        const target = strip
+          ? Array.from(
+              strip.querySelectorAll<HTMLElement>("[data-tab-id]"),
+            ).find((element) => element.dataset.tabId === tab.id)
+          : null;
+        target?.scrollIntoView({ block: "nearest", inline: "nearest" });
+        updateTabScrollState();
+      });
+    },
+    [closeTabList, updateTabScrollState],
+  );
 
   const focusPath = useCallback((path: string) => {
     const existing = tabsRef.current.find((tab) => samePath(tab.path, path));
@@ -547,6 +600,52 @@ function App() {
       window.removeEventListener("keydown", closeOnEscape, true);
     };
   }, [menuOpen]);
+
+  useEffect(() => {
+    if (!tabListOpen) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      tabListInputRef.current?.focus();
+    });
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (!(event.target instanceof Node)) {
+        return;
+      }
+      if (tabListRef.current?.contains(event.target)) {
+        return;
+      }
+      if (
+        event.target instanceof Element &&
+        event.target.closest("[data-tab-list-trigger]")
+      ) {
+        return;
+      }
+      closeTabList();
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeTabList();
+      }
+    };
+    const closeList = () => closeTabList();
+
+    document.addEventListener("pointerdown", closeOnPointerDown);
+    window.addEventListener("keydown", closeOnEscape, true);
+    window.addEventListener("blur", closeList);
+    window.addEventListener("resize", closeList);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("pointerdown", closeOnPointerDown);
+      window.removeEventListener("keydown", closeOnEscape, true);
+      window.removeEventListener("blur", closeList);
+      window.removeEventListener("resize", closeList);
+    };
+  }, [closeTabList, tabListOpen]);
 
   useEffect(() => {
     if (!ready) {
@@ -1370,6 +1469,7 @@ function App() {
 
     event.preventDefault();
     event.stopPropagation();
+    closeTabList();
     const tabId = tabElement.dataset.tabId;
     if (!tabId) {
       return;
@@ -1489,7 +1589,10 @@ function App() {
           <button
             className="topbar-button"
             type="button"
-            onClick={() => setMenuOpen((open) => !open)}
+            onClick={() => {
+              closeTabList();
+              setMenuOpen((open) => !open);
+            }}
             title={text.menuButton}
             aria-label={text.openApplicationMenu}
             aria-haspopup="menu"
@@ -1516,7 +1619,6 @@ function App() {
                   void openFilePicker();
                 }}
               >
-                <FolderOpen size={16} strokeWidth={1.8} />
                 <span>{text.openFile}</span>
                 <kbd>Ctrl+O</kbd>
               </button>
@@ -1529,7 +1631,6 @@ function App() {
                   createNewTab();
                 }}
               >
-                <FilePlus2 size={16} strokeWidth={1.8} />
                 <span>{text.newFile}</span>
                 <kbd>Ctrl+N</kbd>
               </button>
@@ -1545,7 +1646,6 @@ function App() {
                   }
                 }}
               >
-                <Save size={16} strokeWidth={1.8} />
                 <span>{text.save}</span>
                 <kbd>Ctrl+S</kbd>
               </button>
@@ -1559,7 +1659,6 @@ function App() {
                   void openSettingsFile();
                 }}
               >
-                <Settings2 size={16} strokeWidth={1.8} />
                 <span>{text.settings}</span>
                 <kbd>Ctrl+,</kbd>
               </button>
@@ -1574,11 +1673,6 @@ function App() {
                   );
                 }}
               >
-                {themeMode === "dark" ? (
-                  <Sun size={16} strokeWidth={1.8} />
-                ) : (
-                  <Moon size={16} strokeWidth={1.8} />
-                )}
                 <span>
                   {themeMode === "dark"
                     ? text.useLightTheme
@@ -1595,7 +1689,6 @@ function App() {
                   closeApp();
                 }}
               >
-                <LogOut size={16} strokeWidth={1.8} />
                 <span>{text.exit}</span>
                 <kbd>Alt+F4</kbd>
               </button>
@@ -1606,9 +1699,20 @@ function App() {
         <button
           className="tab-scroll-button tab-scroll-left"
           type="button"
+          data-tab-list-trigger
           hidden={!tabScrollState.hasOverflow}
-          disabled={!tabScrollState.canScrollLeft}
-          onClick={() => scrollTabStrip(-1)}
+          aria-disabled={!tabScrollState.canScrollLeft}
+          onClick={() => {
+            closeTabList();
+            if (tabScrollState.canScrollLeft) {
+              scrollTabStrip(-1);
+            }
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openTabListAt(event.clientX, event.clientY + 4);
+          }}
           title={text.scrollTabsLeft}
           aria-label={text.scrollTabsLeft}
         >
@@ -1738,13 +1842,52 @@ function App() {
         <button
           className="tab-scroll-button tab-scroll-right"
           type="button"
+          data-tab-list-trigger
           hidden={!tabScrollState.hasOverflow}
-          disabled={!tabScrollState.canScrollRight}
-          onClick={() => scrollTabStrip(1)}
+          aria-disabled={!tabScrollState.canScrollRight}
+          onClick={() => {
+            closeTabList();
+            if (tabScrollState.canScrollRight) {
+              scrollTabStrip(1);
+            }
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openTabListAt(event.clientX, event.clientY + 4);
+          }}
           title={text.scrollTabsRight}
           aria-label={text.scrollTabsRight}
         >
           <ChevronRight size={16} strokeWidth={1.8} />
+        </button>
+
+        <button
+          className="tab-list-button"
+          type="button"
+          data-tab-list-trigger
+          hidden={!tabScrollState.hasOverflow || tabs.length === 0}
+          aria-haspopup="dialog"
+          aria-expanded={tabListOpen}
+          aria-controls="open-tabs-list"
+          title={text.openTabsList}
+          aria-label={text.openTabsList}
+          onClick={(event) => {
+            if (tabListOpen) {
+              closeTabList();
+              return;
+            }
+            const rect = event.currentTarget.getBoundingClientRect();
+            openTabListAt(rect.right - 360, rect.bottom + 4);
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const rect = event.currentTarget.getBoundingClientRect();
+            openTabListAt(rect.right - 360, rect.bottom + 4);
+          }}
+        >
+          <ChevronDown size={15} strokeWidth={1.8} />
         </button>
 
         <div
@@ -1942,6 +2085,87 @@ function App() {
           ) : null}
         </div>
       </footer>
+
+      {tabListOpen ? (
+        <section
+          className="tab-list-menu"
+          id="open-tabs-list"
+          ref={tabListRef}
+          role="dialog"
+          aria-label={text.openTabsList}
+          style={{ left: tabListPosition.x, top: tabListPosition.y }}
+        >
+          <header className="tab-list-header">
+            <span>{text.openTabsList}</span>
+            <span className="tab-list-count">{tabs.length}</span>
+          </header>
+          <div className="tab-list-search">
+            <Search size={14} strokeWidth={1.8} aria-hidden="true" />
+            <input
+              ref={tabListInputRef}
+              type="search"
+              value={tabListQuery}
+              placeholder={text.searchOpenTabs}
+              aria-label={text.searchOpenTabs}
+              onChange={(event) => setTabListQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && filteredTabList[0]) {
+                  event.preventDefault();
+                  selectTabFromList(filteredTabList[0].id);
+                } else if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  tabListRef.current
+                    ?.querySelector<HTMLButtonElement>(".tab-list-item")
+                    ?.focus();
+                }
+              }}
+            />
+          </div>
+          <div
+            className="tab-list-items"
+            role="listbox"
+            aria-label={text.openFiles}
+          >
+            {filteredTabList.length > 0 ? (
+              filteredTabList.map((tab) => (
+                <button
+                  key={tab.id}
+                  className={`tab-list-item ${
+                    tab.id === activeTabId ? "is-active" : ""
+                  }`}
+                  type="button"
+                  role="option"
+                  aria-selected={tab.id === activeTabId}
+                  title={displayPath(tab.path) || tab.name}
+                  onClick={() => selectTabFromList(tab.id)}
+                >
+                  <FileText
+                    className="tab-list-file-icon"
+                    size={16}
+                    strokeWidth={1.6}
+                  />
+                  <span className="tab-list-copy">
+                    <span className="tab-list-name">
+                      {tab.name}
+                      {isDirty(tab) ? (
+                        <span
+                          className="tab-list-dirty-dot"
+                          aria-hidden="true"
+                        />
+                      ) : null}
+                    </span>
+                    <span className="tab-list-path">
+                      {displayPath(tab.path) || text.notSavedYet}
+                    </span>
+                  </span>
+                </button>
+              ))
+            ) : (
+              <div className="tab-list-empty">{text.noMatchingTabs}</div>
+            )}
+          </div>
+        </section>
+      ) : null}
 
       {contextMenu ? (
         <div

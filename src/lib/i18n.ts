@@ -13,6 +13,9 @@ export type AppText = {
   useDarkTheme: string;
   scrollTabsLeft: string;
   scrollTabsRight: string;
+  openTabsList: string;
+  searchOpenTabs: string;
+  noMatchingTabs: string;
   openFiles: string;
   dragToReorder: string;
   middleClickToClose: string;
@@ -68,6 +71,9 @@ const EN_TEXT: AppText = {
   useDarkTheme: "Use dark theme",
   scrollTabsLeft: "Scroll tabs left",
   scrollTabsRight: "Scroll tabs right",
+  openTabsList: "Open tabs",
+  searchOpenTabs: "Search open tabs",
+  noMatchingTabs: "No matching open files",
   openFiles: "Open files",
   dragToReorder: "drag to reorder",
   middleClickToClose: "middle-click to close",
@@ -126,6 +132,9 @@ const ZH_TW_TEXT: AppText = {
   useDarkTheme: "使用深色主題",
   scrollTabsLeft: "向左捲動分頁",
   scrollTabsRight: "向右捲動分頁",
+  openTabsList: "開啟的分頁",
+  searchOpenTabs: "搜尋已開啟的分頁",
+  noMatchingTabs: "沒有符合的已開啟檔案",
   openFiles: "已開啟檔案",
   dragToReorder: "拖曳可重新排序",
   middleClickToClose: "滑鼠中鍵可關閉",
