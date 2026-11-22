@@ -23,6 +23,12 @@ CodeMirror 6.
 - Open With, command-line file opening, and middle-click tab closing
 - No account, AI, Git, terminal, project system, or language-server panels
 
+## Configuration
+
+Simple Editor stores versioned user settings outside the workspace. See the
+[Settings reference](docs/SETTINGS.md) for the settings-file location,
+supported parameters, defaults, ranges, and a complete JSON example.
+
 ## Requirements
 
 - Windows 10 or 11
