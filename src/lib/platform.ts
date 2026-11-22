@@ -16,6 +16,7 @@ export const isTauriRuntime =
 
 const SESSION_KEY = "simple-editor.workspace.v1";
 const SETTINGS_KEY = "simple-editor.settings.v1";
+const MAX_LOCAL_WORKSPACE_CACHE_LENGTH = 4 * 1024 * 1024;
 
 function fileName(path: string) {
   const normalized = path.replaceAll("\\", "/");
@@ -191,13 +192,19 @@ export async function listenForSingleInstanceOpenFiles(
 }
 
 export async function persistWorkspace(snapshot: WorkspaceSnapshot) {
-  cacheWorkspace(snapshot);
+  let content: string;
+  try {
+    content = JSON.stringify(snapshot);
+  } catch {
+    return;
+  }
+  cacheWorkspaceContent(content);
 
   if (!isTauriRuntime) {
     return;
   }
   await invoke("save_session", {
-    content: JSON.stringify(snapshot),
+    content,
   });
 }
 
@@ -293,8 +300,32 @@ export async function copyText(content: string) {
   textarea.remove();
 }
 
+function clearWorkspaceCache() {
+  try {
+    localStorage.removeItem(SESSION_KEY);
+  } catch {
+    // Browser storage can be unavailable or already at its quota.
+  }
+}
+
+function cacheWorkspaceContent(content: string) {
+  if (content.length > MAX_LOCAL_WORKSPACE_CACHE_LENGTH) {
+    clearWorkspaceCache();
+    return;
+  }
+  try {
+    localStorage.setItem(SESSION_KEY, content);
+  } catch {
+    clearWorkspaceCache();
+  }
+}
+
 export function cacheWorkspace(snapshot: WorkspaceSnapshot) {
-  localStorage.setItem(SESSION_KEY, JSON.stringify(snapshot));
+  try {
+    cacheWorkspaceContent(JSON.stringify(snapshot));
+  } catch {
+    clearWorkspaceCache();
+  }
 }
 
 export async function restoreWorkspace(): Promise<WorkspaceSnapshot | null> {
