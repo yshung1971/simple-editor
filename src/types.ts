@@ -10,6 +10,7 @@ export type EditorTab = {
   savedContent: string;
   cursor: number;
   scrollTop: number;
+  contentDeferred?: boolean;
 };
 
 export type WorkspaceSnapshot = {

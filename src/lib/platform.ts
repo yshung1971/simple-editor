@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type {
+  EditorTab,
   FilePayload,
   UserSettings,
   WindowSettings,
@@ -17,6 +18,7 @@ export const isTauriRuntime =
 const SESSION_KEY = "simple-editor.workspace.v1";
 const SETTINGS_KEY = "simple-editor.settings.v1";
 const MAX_LOCAL_WORKSPACE_CACHE_LENGTH = 4 * 1024 * 1024;
+const MAX_INLINE_WORKSPACE_TAB_LENGTH = 1024 * 1024;
 
 function fileName(path: string) {
   const normalized = path.replaceAll("\\", "/");
@@ -191,10 +193,29 @@ export async function listenForSingleInstanceOpenFiles(
   };
 }
 
+function serializeWorkspaceSnapshot(snapshot: WorkspaceSnapshot) {
+  const tabs = snapshot.tabs.map((tab) => {
+    if (
+      tab.path &&
+      tab.content === tab.savedContent &&
+      tab.content.length > MAX_INLINE_WORKSPACE_TAB_LENGTH
+    ) {
+      return {
+        ...tab,
+        content: "",
+        savedContent: "",
+        contentDeferred: true,
+      };
+    }
+    return tab;
+  });
+  return JSON.stringify({ ...snapshot, tabs });
+}
+
 export async function persistWorkspace(snapshot: WorkspaceSnapshot) {
   let content: string;
   try {
-    content = JSON.stringify(snapshot);
+    content = serializeWorkspaceSnapshot(snapshot);
   } catch {
     return;
   }
@@ -322,7 +343,7 @@ function cacheWorkspaceContent(content: string) {
 
 export function cacheWorkspace(snapshot: WorkspaceSnapshot) {
   try {
-    cacheWorkspaceContent(JSON.stringify(snapshot));
+    cacheWorkspaceContent(serializeWorkspaceSnapshot(snapshot));
   } catch {
     clearWorkspaceCache();
   }
@@ -342,9 +363,30 @@ export async function restoreWorkspace(): Promise<WorkspaceSnapshot | null> {
     if (candidates.length === 0) {
       return null;
     }
-    return candidates.sort(
+    const restored = candidates.sort(
       (left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0),
     )[0];
+    const tabs = (
+      await Promise.all(
+        restored.tabs.map(async (tab) => {
+          if (!tab.contentDeferred || !tab.path) {
+            return tab;
+          }
+          try {
+            const payload = await readFile(tab.path);
+            return {
+              ...tab,
+              content: payload.content,
+              savedContent: payload.content,
+              contentDeferred: false,
+            };
+          } catch {
+            return null;
+          }
+        }),
+      )
+    ).filter((tab): tab is EditorTab => tab !== null);
+    return { ...restored, tabs };
   } catch {
     return null;
   }
