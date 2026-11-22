@@ -27,9 +27,19 @@ import {
   lineNumbers,
   rectangularSelection,
 } from "@codemirror/view";
-import { useEffect, useRef } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  type ForwardedRef,
+} from "react";
 import { languageExtension } from "../lib/languages";
 import type { ThemeMode } from "../types";
+
+export type EditorPaneHandle = {
+  scrollToLine: (line: number) => void;
+};
 
 type EditorPaneProps = {
   value: string;
@@ -41,6 +51,7 @@ type EditorPaneProps = {
   initialScrollTop: number;
   onChange: (value: string) => void;
   onCursorChange: (cursor: number) => void;
+  onContentClick: (cursor: number) => void;
   onScrollChange: (scrollTop: number) => void;
   onSave: () => void;
 };
@@ -113,19 +124,23 @@ function editorTheme(themeMode: ThemeMode) {
   );
 }
 
-export function EditorPane({
-  value,
-  name,
-  themeMode,
-  wordWrap,
-  tabSize,
-  initialCursor,
-  initialScrollTop,
-  onChange,
-  onCursorChange,
-  onScrollChange,
-  onSave,
-}: EditorPaneProps) {
+function EditorPaneComponent(
+  {
+    value,
+    name,
+    themeMode,
+    wordWrap,
+    tabSize,
+    initialCursor,
+    initialScrollTop,
+    onChange,
+    onCursorChange,
+    onContentClick,
+    onScrollChange,
+    onSave,
+  }: EditorPaneProps,
+  ref: ForwardedRef<EditorPaneHandle>,
+) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const themeCompartment = useRef(new Compartment());
@@ -134,6 +149,7 @@ export function EditorPane({
   const callbacksRef = useRef({
     onChange,
     onCursorChange,
+    onContentClick,
     onScrollChange,
     onSave,
   });
@@ -141,9 +157,33 @@ export function EditorPane({
   callbacksRef.current = {
     onChange,
     onCursorChange,
+    onContentClick,
     onScrollChange,
     onSave,
   };
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      scrollToLine(line) {
+        const view = viewRef.current;
+        if (!view) {
+          return;
+        }
+        const targetLine = Math.min(
+          view.state.doc.lines,
+          Math.max(1, Math.trunc(line)),
+        );
+        view.dispatch({
+          effects: EditorView.scrollIntoView(
+            view.state.doc.line(targetLine).from,
+            { y: "center" },
+          ),
+        });
+      },
+    }),
+    [],
+  );
 
   useEffect(() => {
     if (!hostRef.current) {
@@ -190,6 +230,21 @@ export function EditorPane({
         languageCompartment.current.of(languageExtension(name)),
         themeCompartment.current.of(themeExtensions(themeMode)),
         editorTheme(themeMode),
+        EditorView.domEventHandlers({
+          mousedown(event, view) {
+            if (event.button !== 0) {
+              return false;
+            }
+            const cursor = view.posAtCoords({
+              x: event.clientX,
+              y: event.clientY,
+            });
+            if (cursor !== null) {
+              callbacksRef.current.onContentClick(cursor);
+            }
+            return false;
+          },
+        }),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             callbacksRef.current.onChange(update.state.doc.toString());
@@ -281,6 +336,10 @@ export function EditorPane({
 
   return <div className="editor-host" ref={hostRef} />;
 }
+
+export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(
+  EditorPaneComponent,
+);
 
 function closeSearchKeys() {
   return [

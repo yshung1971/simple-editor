@@ -28,8 +28,14 @@ import {
   type CSSProperties,
 } from "react";
 import "./App.css";
-import { EditorPane } from "./components/EditorPane";
-import { MarkdownPreview } from "./components/MarkdownPreview";
+import {
+  EditorPane,
+  type EditorPaneHandle,
+} from "./components/EditorPane";
+import {
+  MarkdownPreview,
+  type MarkdownPreviewHandle,
+} from "./components/MarkdownPreview";
 import { isMarkdownFile, languageLabel } from "./lib/languages";
 import { appText } from "./lib/i18n";
 import {
@@ -38,6 +44,7 @@ import {
   chooseTextFile,
   closeAppWindow,
   copyText,
+  displayPath,
   listenForFileDrops,
   listenForWindowCloseRequest,
   listenForWindowMetrics,
@@ -97,6 +104,17 @@ function normalizeZoom(value: number | undefined) {
 
 function normalizeSplit(value: number | undefined) {
   return clamp(value ?? 0.5, MIN_SPLIT, MAX_SPLIT);
+}
+
+function lineAtOffset(content: string, offset: number) {
+  let line = 1;
+  const limit = Math.min(content.length, Math.max(0, offset));
+  for (let index = 0; index < limit; index += 1) {
+    if (content.charCodeAt(index) === 10) {
+      line += 1;
+    }
+  }
+  return line;
 }
 
 function createUntitledTab(): EditorTab {
@@ -199,6 +217,8 @@ function App() {
   const activeTabIdRef = useRef(activeTabId);
   const tabsRef = useRef(tabs);
   const workspaceRef = useRef<HTMLElement>(null);
+  const editorPaneRef = useRef<EditorPaneHandle>(null);
+  const previewRef = useRef<MarkdownPreviewHandle>(null);
   const tabStripRef = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
@@ -719,6 +739,22 @@ function App() {
     },
     [],
   );
+
+  const syncPreviewToEditorClick = useCallback((cursor: number) => {
+    const tab = tabsRef.current.find(
+      (candidate) => candidate.id === activeTabIdRef.current,
+    );
+    if (!tab) {
+      return;
+    }
+    previewRef.current?.scrollToSourceLine(
+      lineAtOffset(tab.content, cursor),
+    );
+  }, []);
+
+  const syncEditorToPreviewClick = useCallback((sourceLine: number) => {
+    editorPaneRef.current?.scrollToLine(sourceLine);
+  }, []);
 
   const moveTab = useCallback(
     (
@@ -1370,7 +1406,7 @@ function App() {
         if (!tab.path) {
           return;
         }
-        void copyText(tab.path).catch((error) => {
+        void copyText(displayPath(tab.path)).catch((error) => {
           showError(`Could not copy the file path: ${String(error)}`);
         });
       } else if (action === "open-folder") {
@@ -1624,7 +1660,7 @@ function App() {
                 event.preventDefault();
               }
             }}
-            title={`${tab.path ?? tab.name} (${text.dragToReorder}; ${text.middleClickToClose})`}
+            title={`${displayPath(tab.path) || tab.name} (${text.dragToReorder}; ${text.middleClickToClose})`}
           >
             <FileText
               className="tab-file-icon"
@@ -1787,6 +1823,7 @@ function App() {
             <section className="editor-pane" aria-label={text.editor}>
               <EditorPane
                 key={activeTab.id}
+                ref={editorPaneRef}
                 value={activeTab.content}
                 name={activeTab.name}
                 themeMode={themeMode}
@@ -1800,6 +1837,7 @@ function App() {
                 onCursorChange={(cursor) =>
                   updateActiveTab((tab) => ({ ...tab, cursor }))
                 }
+                onContentClick={syncPreviewToEditorClick}
                 onScrollChange={(scrollTop) =>
                   updateActiveTab((tab) => ({ ...tab, scrollTop }))
                 }
@@ -1836,8 +1874,9 @@ function App() {
                   }}
                 >
                   <MarkdownPreview
+                    ref={previewRef}
                     content={activeTab.content}
-                    sourceLine={lineColumn.line}
+                    onSourceLineClick={syncEditorToPreviewClick}
                     themeMode={themeMode}
                   />
                 </section>
@@ -1869,8 +1908,12 @@ function App() {
       </main>
 
       <footer className="status-bar">
-        <div className="status-path" title={activeTab?.path ?? undefined}>
-          {activeTab?.path ?? (activeTab ? text.notSavedYet : "")}
+        <div
+          className="status-path"
+          title={displayPath(activeTab?.path) || undefined}
+        >
+          {displayPath(activeTab?.path) ||
+            (activeTab ? text.notSavedYet : "")}
         </div>
         <div className="status-meta">
           {activeTab ? (

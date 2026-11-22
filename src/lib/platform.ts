@@ -22,6 +22,19 @@ function fileName(path: string) {
   return normalized.slice(normalized.lastIndexOf("/") + 1) || "untitled";
 }
 
+export function displayPath(path: string | null | undefined) {
+  if (!path) {
+    return "";
+  }
+  if (path.startsWith("\\\\?\\UNC\\")) {
+    return `\\\\${path.slice(8)}`;
+  }
+  if (path.startsWith("\\\\?\\")) {
+    return path.slice(4);
+  }
+  return path;
+}
+
 function browserFilePayload(file: File, content: string): FilePayload {
   return {
     path: file.name,

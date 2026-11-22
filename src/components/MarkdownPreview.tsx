@@ -1,11 +1,14 @@
 import { ExternalLink } from "lucide-react";
-import type { Element, Root } from "hast";
+import type { Element as HastElement, Root as HastRoot } from "hast";
 import {
   Children,
+  forwardRef,
   isValidElement,
-  useEffect,
+  memo,
+  useImperativeHandle,
   useRef,
   type ComponentProps,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
@@ -15,9 +18,13 @@ import { openExternalUrl } from "../lib/platform";
 import type { ThemeMode } from "../types";
 import { MermaidDiagram } from "./MermaidDiagram";
 
+export type MarkdownPreviewHandle = {
+  scrollToSourceLine: (sourceLine: number) => void;
+};
+
 type MarkdownPreviewProps = {
   content: string;
-  sourceLine: number;
+  onSourceLineClick: (sourceLine: number) => void;
   themeMode: ThemeMode;
 };
 
@@ -42,8 +49,8 @@ const SOURCE_LINE_SELECTOR = [
 ].join(",");
 
 function rehypeSourceLines() {
-  return (tree: Root) => {
-    const visit = (node: Root | Element) => {
+  return (tree: HastRoot) => {
+    const visit = (node: HastRoot | HastElement) => {
       if (node.type === "element" && node.position) {
         node.properties = {
           ...node.properties,
@@ -73,11 +80,48 @@ function hasMermaidBlock(children: ReactNode) {
   );
 }
 
-export function MarkdownPreview({
-  content,
-  sourceLine,
-  themeMode,
-}: MarkdownPreviewProps) {
+function sourceLineAtClick(
+  preview: HTMLElement,
+  target: EventTarget | null,
+  clientY: number,
+) {
+  if (target instanceof Element) {
+    const closest = target.closest<HTMLElement>(SOURCE_LINE_SELECTOR);
+    if (closest && preview.contains(closest)) {
+      const line = Number(closest.dataset.sourceLine);
+      if (Number.isFinite(line)) {
+        return line;
+      }
+    }
+  }
+
+  let nearest: HTMLElement | null = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  const anchors = preview.querySelectorAll<HTMLElement>(SOURCE_LINE_SELECTOR);
+  for (const anchor of anchors) {
+    const distance = Math.abs(
+      anchor.getBoundingClientRect().top - clientY,
+    );
+    if (distance < nearestDistance) {
+      nearest = anchor;
+      nearestDistance = distance;
+    }
+  }
+
+  if (!nearest) {
+    return null;
+  }
+  const line = Number(nearest.dataset.sourceLine);
+  return Number.isFinite(line) ? line : null;
+}
+
+const MarkdownPreviewComponent = forwardRef<
+  MarkdownPreviewHandle,
+  MarkdownPreviewProps
+>(function MarkdownPreview(
+  { content, onSourceLineClick, themeMode },
+  ref,
+) {
   const previewRef = useRef<HTMLDivElement>(null);
   const components: Components = {
     pre: ({ children, ...props }) =>
@@ -141,53 +185,77 @@ export function MarkdownPreview({
     ),
   };
 
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => {
-      const preview = previewRef.current;
-      if (!preview) {
-        return;
-      }
-
-      const anchors = Array.from(
-        preview.querySelectorAll<HTMLElement>(SOURCE_LINE_SELECTOR),
-      );
-      let target: HTMLElement | null = null;
-      let targetLine = 0;
-
-      for (const candidate of anchors) {
-        const line = Number(candidate.dataset.sourceLine);
-        if (
-          Number.isFinite(line) &&
-          line <= sourceLine &&
-          line >= targetLine
-        ) {
-          target = candidate;
-          targetLine = line;
+  useImperativeHandle(
+    ref,
+    () => ({
+      scrollToSourceLine(sourceLine) {
+        const preview = previewRef.current;
+        if (!preview) {
+          return;
         }
-      }
 
-      if (!target) {
-        preview.scrollTop = 0;
-        return;
-      }
+        const anchors = preview.querySelectorAll<HTMLElement>(
+          SOURCE_LINE_SELECTOR,
+        );
+        let target: HTMLElement | null = null;
+        let targetLine = 0;
 
-      const previewTop = preview.getBoundingClientRect().top;
-      const targetTop =
-        target.getBoundingClientRect().top -
-        previewTop +
-        preview.scrollTop -
-        16;
-      preview.scrollTop = Math.max(0, targetTop);
-    });
+        for (const candidate of anchors) {
+          const line = Number(candidate.dataset.sourceLine);
+          if (
+            Number.isFinite(line) &&
+            line <= sourceLine &&
+            line >= targetLine
+          ) {
+            target = candidate;
+            targetLine = line;
+          }
+        }
 
-    return () => cancelAnimationFrame(frame);
-  }, [content, sourceLine]);
+        if (!target) {
+          preview.scrollTop = 0;
+          return;
+        }
+
+        const previewTop = preview.getBoundingClientRect().top;
+        const targetTop =
+          target.getBoundingClientRect().top -
+          previewTop +
+          preview.scrollTop -
+          16;
+        preview.scrollTop = Math.max(0, targetTop);
+      },
+    }),
+    [],
+  );
+
+  const handleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+    if (
+      event.target instanceof Element &&
+      event.target.closest("a, button, input, select, textarea")
+    ) {
+      return;
+    }
+
+    const sourceLine = sourceLineAtClick(
+      event.currentTarget,
+      event.target,
+      event.clientY,
+    );
+    if (sourceLine !== null) {
+      onSourceLineClick(sourceLine);
+    }
+  };
 
   return (
     <div
       className="markdown-preview"
       ref={previewRef}
       aria-label="Markdown preview"
+      onClick={handleClick}
     >
       <div className="markdown-preview-inner">
         <ReactMarkdown
@@ -203,5 +271,7 @@ export function MarkdownPreview({
       </div>
     </div>
   );
-}
+});
+
+export const MarkdownPreview = memo(MarkdownPreviewComponent);
 
