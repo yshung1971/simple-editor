@@ -164,6 +164,32 @@ export async function loadStartupFiles(): Promise<string[]> {
   return invoke<string[]>("startup_files");
 }
 
+export async function listenForSingleInstanceOpenFiles(
+  callback: (paths: string[]) => void,
+): Promise<() => void> {
+  if (!isTauriRuntime) {
+    return () => undefined;
+  }
+
+  const { listen } = await import("@tauri-apps/api/event");
+  let disposed = false;
+  const drainPendingPaths = async () => {
+    const paths = await invoke<string[]>("take_pending_instance_files");
+    if (!disposed && paths.length > 0) {
+      callback(paths);
+    }
+  };
+  const unlisten = await listen("single-instance-files-pending", () => {
+    void drainPendingPaths();
+  });
+  await drainPendingPaths();
+
+  return () => {
+    disposed = true;
+    unlisten();
+  };
+}
+
 export async function persistWorkspace(snapshot: WorkspaceSnapshot) {
   cacheWorkspace(snapshot);
 

@@ -1,5 +1,6 @@
 export type ThemeMode = "light" | "dark";
 export type UiLanguage = "en" | "zh-TW";
+export type InstanceMode = "single" | "multi";
 
 export type EditorTab = {
   id: string;
@@ -39,6 +40,7 @@ export type PreviewSettings = {
 export type BehaviorSettings = {
   restoreUnsavedTabs: boolean;
   confirmOnClose: boolean;
+  instanceMode: InstanceMode;
 };
 
 export type WindowSettings = {
@@ -47,7 +49,7 @@ export type WindowSettings = {
 };
 
 export type UserSettings = {
-  version: 4;
+  version: 5;
   uiLanguage: UiLanguage;
   themeMode: ThemeMode;
   previewVisible: boolean;

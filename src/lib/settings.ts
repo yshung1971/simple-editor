@@ -1,6 +1,7 @@
 import type {
   BehaviorSettings,
   EditorSettings,
+  InstanceMode,
   PreviewSettings,
   ThemeMode,
   UiLanguage,
@@ -25,6 +26,7 @@ export const DEFAULT_PREVIEW_SETTINGS: PreviewSettings = {
 export const DEFAULT_BEHAVIOR_SETTINGS: BehaviorSettings = {
   restoreUnsavedTabs: true,
   confirmOnClose: true,
+  instanceMode: "multi",
 };
 
 export const DEFAULT_WINDOW_SETTINGS: WindowSettings = {
@@ -64,7 +66,7 @@ export function createDefaultUserSettings(
   themeMode: ThemeMode,
 ): UserSettings {
   return {
-    version: 4,
+    version: 5,
     uiLanguage: "en",
     themeMode,
     previewVisible: true,
@@ -89,9 +91,11 @@ export function normalizeUserSettings(value: unknown): UserSettings {
       : "dark";
   const uiLanguage: UiLanguage =
     root.uiLanguage === "zh-TW" ? "zh-TW" : "en";
+  const instanceMode: InstanceMode =
+    behavior.instanceMode === "single" ? "single" : "multi";
 
   return {
-    version: 4,
+    version: 5,
     uiLanguage,
     themeMode,
     previewVisible: booleanValue(root.previewVisible, true),
@@ -149,6 +153,7 @@ export function normalizeUserSettings(value: unknown): UserSettings {
         behavior.confirmOnClose,
         DEFAULT_BEHAVIOR_SETTINGS.confirmOnClose,
       ),
+      instanceMode,
     },
     window: {
       width: Math.round(

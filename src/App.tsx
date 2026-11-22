@@ -46,6 +46,7 @@ import {
   copyText,
   displayPath,
   listenForFileDrops,
+  listenForSingleInstanceOpenFiles,
   listenForWindowCloseRequest,
   listenForWindowMetrics,
   loadStartupFiles,
@@ -266,7 +267,7 @@ function App() {
   const text = appText(uiLanguage);
   const currentSettings = useMemo<UserSettings>(
     () => ({
-      version: 4,
+      version: 5,
       uiLanguage,
       themeMode,
       previewVisible,
@@ -718,6 +719,18 @@ function App() {
   useEffect(() => {
     let dispose: (() => void) | undefined;
     void listenForFileDrops((paths) => {
+      void openPaths(paths);
+    }).then((unlisten) => {
+      dispose = unlisten;
+    });
+    return () => {
+      dispose?.();
+    };
+  }, [openPaths]);
+
+  useEffect(() => {
+    let dispose: (() => void) | undefined;
+    void listenForSingleInstanceOpenFiles((paths) => {
       void openPaths(paths);
     }).then((unlisten) => {
       dispose = unlisten;

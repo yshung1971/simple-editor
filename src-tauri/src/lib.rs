@@ -1,9 +1,12 @@
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager};
+use std::sync::Mutex;
+use tauri::{AppHandle, Emitter, Manager};
 
 const MAX_FILE_SIZE: u64 = 32 * 1024 * 1024;
+const APP_IDENTIFIER: &str = "com.yshung.simpleeditor";
+const SINGLE_INSTANCE_FILES_EVENT: &str = "single-instance-files-pending";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -13,8 +16,74 @@ struct TextFilePayload {
     content: String,
 }
 
+#[derive(Default)]
+struct PendingInstanceFiles(Mutex<Vec<String>>);
+
 fn command_error(context: &str, error: impl std::fmt::Display) -> String {
     format!("{context}: {error}")
+}
+
+fn single_instance_enabled() -> bool {
+    let Some(app_data) = std::env::var_os("APPDATA") else {
+        return false;
+    };
+    let settings_path = PathBuf::from(app_data)
+        .join(APP_IDENTIFIER)
+        .join("settings.json");
+    let Ok(content) = fs::read_to_string(settings_path) else {
+        return false;
+    };
+    let Ok(settings) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return false;
+    };
+
+    settings
+        .pointer("/behavior/instanceMode")
+        .and_then(serde_json::Value::as_str)
+        == Some("single")
+}
+
+fn canonical_file_arguments<I>(arguments: I, cwd: Option<&Path>) -> Vec<String>
+where
+    I: IntoIterator<Item = String>,
+{
+    arguments
+        .into_iter()
+        .filter(|argument| !argument.starts_with('-'))
+        .filter_map(|argument| {
+            let path = PathBuf::from(argument);
+            let candidate = if path.is_absolute() {
+                path
+            } else if let Some(cwd) = cwd {
+                cwd.join(path)
+            } else {
+                path
+            };
+            let canonical = fs::canonicalize(candidate).ok()?;
+            canonical
+                .is_file()
+                .then(|| canonical.to_string_lossy().into_owned())
+        })
+        .collect()
+}
+
+fn focus_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn queue_instance_files(app: &AppHandle, paths: Vec<String>) {
+    if paths.is_empty() {
+        return;
+    }
+
+    if let Ok(mut pending) = app.state::<PendingInstanceFiles>().0.lock() {
+        pending.extend(paths);
+    }
+    let _ = app.emit(SINGLE_INSTANCE_FILES_EVENT, ());
 }
 
 fn session_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -171,18 +240,38 @@ fn rename_text_file(path: String, new_name: String) -> Result<String, String> {
 
 #[tauri::command]
 fn startup_files() -> Vec<String> {
-    std::env::args()
-        .skip(1)
-        .filter(|argument| !argument.starts_with('-'))
-        .filter_map(|argument| fs::canonicalize(argument).ok())
-        .filter(|path| path.is_file())
-        .map(|path| path.to_string_lossy().into_owned())
-        .collect()
+    let cwd = std::env::current_dir().ok();
+    canonical_file_arguments(std::env::args().skip(1), cwd.as_deref())
+}
+
+#[tauri::command]
+fn take_pending_instance_files(
+    state: tauri::State<'_, PendingInstanceFiles>,
+) -> Vec<String> {
+    state
+        .0
+        .lock()
+        .map(|mut pending| std::mem::take(&mut *pending))
+        .unwrap_or_default()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default().manage(PendingInstanceFiles::default());
+    let builder = if single_instance_enabled() {
+        builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            focus_main_window(app);
+            let paths = canonical_file_arguments(
+                argv.into_iter().skip(1),
+                Some(Path::new(&cwd)),
+            );
+            queue_instance_files(app, paths);
+        }))
+    } else {
+        builder
+    };
+
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -194,7 +283,8 @@ pub fn run() {
             load_settings,
             prepare_settings_file,
             rename_text_file,
-            startup_files
+            startup_files,
+            take_pending_instance_files
         ])
         .run(tauri::generate_context!())
         .expect("error while running Simple Editor");
